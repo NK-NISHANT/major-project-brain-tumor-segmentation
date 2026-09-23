@@ -1,0 +1,20 @@
+{
+  "raw_dir": "D:\\MajorProject\\data\\raw",
+  "results_dir": "D:\\MajorProject\\results\\baseline_unet2d",
+  "epochs": 1,
+  "batch_size": 2,
+  "learning_rate": 0.001,
+  "dice_weight": 1.0,
+  "ce_weight": 1.0,
+  "val_fraction": 0.2,
+  "background_slice_ratio": 0.25,
+  "seed": 42,
+  "num_workers": 0,
+  "pin_memory": true,
+  "case_cache_size": 1,
+  "case_wise_batches": true,
+  "base_channels": 32,
+  "num_classes": 4,
+  "parameter_count": 7763428,
+  "device": "cuda"
+}

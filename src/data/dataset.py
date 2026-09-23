@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -8,7 +9,7 @@ from typing import Mapping, Sequence
 import nibabel as nib
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -33,6 +34,12 @@ class SliceRecord:
     case_id: str
     slice_index: int
     has_foreground: bool
+
+
+@dataclass(frozen=True)
+class CachedCaseVolume:
+    image: np.ndarray
+    mask: np.ndarray
 
 
 def discover_valid_cases(raw_dir: str | Path = DEFAULT_RAW_DATA_DIR) -> list[CaseFiles]:
@@ -107,6 +114,7 @@ def create_train_val_datasets(
     val_fraction: float = 0.2,
     background_slice_ratio: float = 0.25,
     seed: int = 42,
+    case_cache_size: int = 1,
 ) -> tuple["BraTSGLISliceDataset", "BraTSGLISliceDataset"]:
     """Create train/validation datasets using a deterministic case-level split."""
     cases = discover_valid_cases(raw_dir)
@@ -116,11 +124,13 @@ def create_train_val_datasets(
         train_cases,
         background_slice_ratio=background_slice_ratio,
         seed=seed,
+        case_cache_size=case_cache_size,
     )
     val_dataset = BraTSGLISliceDataset(
         val_cases,
         background_slice_ratio=background_slice_ratio,
         seed=seed + 1,
+        case_cache_size=case_cache_size,
     )
     return train_dataset, val_dataset
 
@@ -137,20 +147,33 @@ class BraTSGLISliceDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         cases: Sequence[CaseFiles],
         background_slice_ratio: float = 0.25,
         seed: int = 42,
+        case_cache_size: int = 1,
     ) -> None:
         if background_slice_ratio < 0.0:
             raise ValueError("background_slice_ratio must be non-negative.")
+        if case_cache_size < 0:
+            raise ValueError("case_cache_size must be non-negative.")
 
         self.cases = list(cases)
         self.case_by_id = {case.case_id: case for case in self.cases}
         self.background_slice_ratio = background_slice_ratio
         self.seed = seed
+        self.case_cache_size = case_cache_size
         self.slice_index = build_slice_index(
             self.cases,
             background_slice_ratio=background_slice_ratio,
             seed=seed,
         )
-        self._normalization_stats: dict[str, dict[str, tuple[float, float]]] = {}
+        self.case_to_slice_indices = self._build_case_to_slice_indices()
+        self._case_volume_cache: OrderedDict[str, CachedCaseVolume] = OrderedDict()
+
+    def __getstate__(self) -> dict[str, object]:
+        state = self.__dict__.copy()
+        # Windows DataLoader workers receive a pickled dataset. The cache is
+        # per-process and can be large, so workers should start with an empty
+        # bounded cache rather than copying volume arrays from the parent.
+        state["_case_volume_cache"] = OrderedDict()
+        return state
 
     def __len__(self) -> int:
         return len(self.slice_index)
@@ -158,41 +181,110 @@ class BraTSGLISliceDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         record = self.slice_index[index]
         case = self.case_by_id[record.case_id]
-        stats = self._get_normalization_stats(case)
+        case_volume = self._get_case_volume(case)
 
-        image_channels: list[np.ndarray] = []
-        for modality in MODALITIES:
-            image = nib.load(str(case.modality_paths[modality]))
-            image_slice = np.asarray(
-                image.dataobj[:, :, record.slice_index],
-                dtype=np.float32,
-            )
-            mean, std = stats[modality]
-            image_channels.append(_normalize_mri_slice(image_slice, mean, std))
-
-        segmentation = nib.load(str(case.segmentation_path))
-        mask = np.asarray(segmentation.dataobj[:, :, record.slice_index])
+        image_slice = np.ascontiguousarray(case_volume.image[:, :, :, record.slice_index])
+        mask_slice = case_volume.mask[:, :, record.slice_index]
 
         # Keep labels as plain class IDs 0, 1, 2, 3. We do not assign semantic
         # names or remap labels here; CrossEntropyLoss only needs integer IDs.
-        mask = np.rint(mask).astype(np.int64, copy=False)
+        mask_slice = np.ascontiguousarray(mask_slice.astype(np.int64, copy=False))
 
-        image_array = np.stack(image_channels, axis=0).astype(np.float32, copy=False)
-        image_tensor = torch.from_numpy(image_array)
-        mask_tensor = torch.from_numpy(mask)
+        image_tensor = torch.from_numpy(image_slice)
+        mask_tensor = torch.from_numpy(mask_slice)
         return image_tensor, mask_tensor
 
     @property
     def case_count(self) -> int:
         return len(self.cases)
 
-    def _get_normalization_stats(self, case: CaseFiles) -> dict[str, tuple[float, float]]:
-        if case.case_id not in self._normalization_stats:
-            self._normalization_stats[case.case_id] = {
-                modality: _compute_nonzero_mean_std(case.modality_paths[modality])
-                for modality in MODALITIES
-            }
-        return self._normalization_stats[case.case_id]
+    def get_case_slice_indices(self) -> dict[str, list[int]]:
+        return {case_id: indices.copy() for case_id, indices in self.case_to_slice_indices.items()}
+
+    def _build_case_to_slice_indices(self) -> dict[str, list[int]]:
+        case_to_indices = {case.case_id: [] for case in self.cases}
+        for dataset_index, record in enumerate(self.slice_index):
+            case_to_indices[record.case_id].append(dataset_index)
+        return case_to_indices
+
+    def _get_case_volume(self, case: CaseFiles) -> CachedCaseVolume:
+        if self.case_cache_size == 0:
+            return _load_and_normalize_case(case)
+
+        cached_volume = self._case_volume_cache.get(case.case_id)
+        if cached_volume is not None:
+            self._case_volume_cache.move_to_end(case.case_id)
+            return cached_volume
+
+        cached_volume = _load_and_normalize_case(case)
+        self._case_volume_cache[case.case_id] = cached_volume
+
+        # The cache is deliberately bounded. One normalized case is roughly
+        # 145 MB on CPU, so caching all 197 cases would be tens of GB. We keep a
+        # small per-process cache and never use GPU memory for dataset storage.
+        while len(self._case_volume_cache) > self.case_cache_size:
+            self._case_volume_cache.popitem(last=False)
+
+        return cached_volume
+
+
+class CaseSliceBatchSampler(Sampler[list[int]]):
+    """Yield batches grouped by case so the CPU case cache can be reused."""
+
+    def __init__(
+        self,
+        dataset: BraTSGLISliceDataset,
+        batch_size: int,
+        shuffle_cases: bool = True,
+        shuffle_slices: bool = True,
+        seed: int = 42,
+        drop_last: bool = False,
+    ) -> None:
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive.")
+
+        self.case_to_slice_indices = dataset.get_case_slice_indices()
+        self.case_ids = [
+            case.case_id
+            for case in dataset.cases
+            if self.case_to_slice_indices.get(case.case_id)
+        ]
+        self.batch_size = batch_size
+        self.shuffle_cases = shuffle_cases
+        self.shuffle_slices = shuffle_slices
+        self.seed = seed
+        self.drop_last = drop_last
+        self.epoch = 0
+
+    def __iter__(self):
+        # Cases are shuffled, but train/validation membership is unchanged.
+        # Keeping nearby batches from the same case avoids repeatedly opening
+        # gzip-compressed NIfTI files for individual slices.
+        rng = random.Random(self.seed + self.epoch)
+        self.epoch += 1
+
+        case_ids = self.case_ids.copy()
+        if self.shuffle_cases:
+            rng.shuffle(case_ids)
+
+        for case_id in case_ids:
+            indices = self.case_to_slice_indices[case_id].copy()
+            if self.shuffle_slices:
+                rng.shuffle(indices)
+
+            for start in range(0, len(indices), self.batch_size):
+                batch = indices[start : start + self.batch_size]
+                if len(batch) == self.batch_size or not self.drop_last:
+                    yield batch
+
+    def __len__(self) -> int:
+        batch_count = 0
+        for indices in self.case_to_slice_indices.values():
+            if self.drop_last:
+                batch_count += len(indices) // self.batch_size
+            else:
+                batch_count += (len(indices) + self.batch_size - 1) // self.batch_size
+        return batch_count
 
 
 def build_slice_index(
@@ -290,6 +382,10 @@ def _find_nifti_file(case_dir: Path, suffix: str) -> Path | None:
 def _compute_nonzero_mean_std(path: Path) -> tuple[float, float]:
     image = nib.load(str(path))
     volume = np.asarray(image.dataobj, dtype=np.float32)
+    return _compute_nonzero_mean_std_from_array(volume)
+
+
+def _compute_nonzero_mean_std_from_array(volume: np.ndarray) -> tuple[float, float]:
     nonzero_voxels = volume[volume != 0]
 
     # MRI volumes are padded with zeros outside the anatomy. Normalizing with
@@ -305,11 +401,26 @@ def _compute_nonzero_mean_std(path: Path) -> tuple[float, float]:
     return mean, std
 
 
-def _normalize_mri_slice(image_slice: np.ndarray, mean: float, std: float) -> np.ndarray:
-    normalized = np.zeros_like(image_slice, dtype=np.float32)
-    nonzero_mask = image_slice != 0
-    normalized[nonzero_mask] = (image_slice[nonzero_mask] - mean) / std
-    return normalized
+def _load_and_normalize_case(case: CaseFiles) -> CachedCaseVolume:
+    image_volume = np.zeros((len(MODALITIES), *case.shape), dtype=np.float32)
+
+    for channel, modality in enumerate(MODALITIES):
+        # Repeated random reads from .nii.gz are slow because gzip decompression
+        # is not designed for thousands of tiny slice requests. Load each
+        # modality once per cached case, compute normalization once, and then
+        # serve selected slices from the normalized CPU array.
+        volume = np.asarray(
+            nib.load(str(case.modality_paths[modality])).dataobj,
+            dtype=np.float32,
+        )
+        mean, std = _compute_nonzero_mean_std_from_array(volume)
+        nonzero_mask = volume != 0
+        normalized_channel = image_volume[channel]
+        normalized_channel[nonzero_mask] = (volume[nonzero_mask] - mean) / std
+
+    segmentation = np.asarray(nib.load(str(case.segmentation_path)).dataobj)
+    mask_volume = np.rint(segmentation).astype(np.uint8, copy=False)
+    return CachedCaseVolume(image=image_volume, mask=mask_volume)
 
 
 def _first_foreground_index(dataset: BraTSGLISliceDataset) -> int:
@@ -321,6 +432,8 @@ def _first_foreground_index(dataset: BraTSGLISliceDataset) -> int:
 
 __all__ = [
     "BraTSGLISliceDataset",
+    "CachedCaseVolume",
+    "CaseSliceBatchSampler",
     "CaseFiles",
     "SliceRecord",
     "MODALITIES",
