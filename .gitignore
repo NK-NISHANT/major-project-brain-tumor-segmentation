@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Large/raw datasets
+data/raw/
+data/processed/
+*.zip
+*.nii
+*.nii.gz
+
+# ML checkpoints / large model files
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+
+# Experiment-generated files
+results/checkpoints/
+results/models/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
