@@ -9,6 +9,10 @@ DATA_PATH = (
     "model_uncertainty_comparison.csv"
 )
 
+INPUT_CONDITION_PATH = (
+    "results/input_condition/"
+    "case_input_reliability.csv"
+)
 
 MODELS = [
     "UNet",
@@ -18,7 +22,38 @@ MODELS = [
 
 
 def main() -> None:
+    # ---------------------------------------------------------
+    # LOAD DATA
+    # ---------------------------------------------------------
+
     data = pd.read_csv(DATA_PATH)
+
+    input_features = pd.read_csv(
+        INPUT_CONDITION_PATH
+    )
+
+    input_feature_columns = [
+        "t1n_nonzero_fraction",
+        "t1n_mean",
+        "t1n_std",
+        "t1c_nonzero_fraction",
+        "t1c_mean",
+        "t1c_std",
+        "t2f_nonzero_fraction",
+        "t2f_mean",
+        "t2f_std",
+        "t2w_nonzero_fraction",
+        "t2w_mean",
+        "t2w_std",
+    ]
+
+    input_features = input_features[
+        ["case_id"] + input_feature_columns
+    ]
+
+    # ---------------------------------------------------------
+    # FILTER VALID SLICES
+    # ---------------------------------------------------------
 
     # Keep only slices with ground-truth foreground and
     # a valid predictive uncertainty value.
@@ -48,7 +83,12 @@ def main() -> None:
         complete_cases
     ].reset_index()
 
-    # Determine the Dice-best model for every slice.
+    # ---------------------------------------------------------
+    # DETERMINE DICE-BEST MODEL
+    # ---------------------------------------------------------
+
+    # For every slice, determine which model achieved
+    # the highest actual Dice score.
     oracle = (
         data.loc[
             data.groupby(
@@ -76,10 +116,13 @@ def main() -> None:
         ],
     )
 
+    # Target = 1 if this model is the Dice-best model
+    # for the corresponding slice.
     data["target"] = (
         data["model"] == data["best_model"]
     ).astype(int)
 
+    # Convert model identity into a numeric feature.
     data["model_code"] = (
         data["model"].map(
             {
@@ -90,11 +133,35 @@ def main() -> None:
         )
     )
 
-    feature_columns = [
+    # ---------------------------------------------------------
+    # ADD CASE-LEVEL MRI CONDITION FEATURES
+    # ---------------------------------------------------------
+
+    data = data.merge(
+        input_features,
+        on="case_id",
+        how="inner",
+    )
+
+    # ---------------------------------------------------------
+    # FEATURE SETS
+    # ---------------------------------------------------------
+
+    # Existing baseline:
+    # model identity + predictive uncertainty +
+    # predicted foreground size.
+    baseline_features = [
         "model_code",
         "predicted_foreground_uncertainty",
         "pred_foreground_pixels",
     ]
+
+    # Condition-aware version:
+    # baseline features + raw MRI input-condition features.
+    condition_features = (
+        baseline_features
+        + input_feature_columns
+    )
 
     # ---------------------------------------------------------
     # CASE-WISE SPLIT
@@ -133,53 +200,133 @@ def main() -> None:
         data["case_id"].isin(test_cases)
     ].copy()
 
-    X_train = train_data[
-        feature_columns
+    # ---------------------------------------------------------
+    # PREPARE TRAINING / TEST FEATURES
+    # ---------------------------------------------------------
+
+    X_train_baseline = train_data[
+        baseline_features
+    ]
+
+    X_train_condition = train_data[
+        condition_features
     ]
 
     y_train = train_data["target"]
 
-    X_test = test_data[
-        feature_columns
+    X_test_baseline = test_data[
+        baseline_features
     ]
 
-    classifier = RandomForestClassifier(
+    X_test_condition = test_data[
+        condition_features
+    ]
+
+    # ---------------------------------------------------------
+    # TRAIN BASELINE RANDOM FOREST
+    # ---------------------------------------------------------
+
+    baseline_classifier = RandomForestClassifier(
         n_estimators=200,
         max_depth=6,
         random_state=42,
         class_weight="balanced",
     )
 
-    classifier.fit(
-        X_train,
+    baseline_classifier.fit(
+        X_train_baseline,
         y_train,
     )
 
-    test_data = test_data.copy()
+    # ---------------------------------------------------------
+    # TRAIN CONDITION-AWARE RANDOM FOREST
+    # ---------------------------------------------------------
 
-    test_data["selection_score"] = (
-        classifier.predict_proba(X_test)[:, 1]
+    condition_classifier = RandomForestClassifier(
+        n_estimators=200,
+        max_depth=6,
+        random_state=42,
+        class_weight="balanced",
     )
 
-    selected = (
+    condition_classifier.fit(
+        X_train_condition,
+        y_train,
+    )
+
+    # ---------------------------------------------------------
+    # GENERATE TEST SCORES
+    # ---------------------------------------------------------
+
+    test_data = test_data.copy()
+
+    test_data["baseline_score"] = (
+        baseline_classifier.predict_proba(
+            X_test_baseline
+        )[:, 1]
+    )
+
+    test_data["condition_score"] = (
+        condition_classifier.predict_proba(
+            X_test_condition
+        )[:, 1]
+    )
+
+    # ---------------------------------------------------------
+    # MODEL SELECTION: BASELINE
+    # ---------------------------------------------------------
+
+    baseline_selected = (
         test_data.loc[
             test_data.groupby(
                 ["case_id", "slice_index"]
-            )["selection_score"].idxmax()
+            )["baseline_score"].idxmax()
         ]
         .set_index(
             ["case_id", "slice_index"]
         )
     )
 
-    selected_models = selected["model"]
-    oracle_models = selected["best_model"]
+    # ---------------------------------------------------------
+    # MODEL SELECTION: CONDITION-AWARE
+    # ---------------------------------------------------------
 
-    agreement = (
-        selected_models == oracle_models
+    condition_selected = (
+        test_data.loc[
+            test_data.groupby(
+                ["case_id", "slice_index"]
+            )["condition_score"].idxmax()
+        ]
+        .set_index(
+            ["case_id", "slice_index"]
+        )
     )
 
-    agreement_rate = agreement.mean()
+    # ---------------------------------------------------------
+    # ORACLE
+    # ---------------------------------------------------------
+
+    oracle_models = (
+        baseline_selected["best_model"]
+    )
+
+    # ---------------------------------------------------------
+    # AGREEMENT
+    # ---------------------------------------------------------
+
+    baseline_agreement = (
+        baseline_selected["model"].to_numpy()
+        == oracle_models.to_numpy()
+    ).mean()
+
+    condition_agreement = (
+        condition_selected["model"].to_numpy()
+        == oracle_models.to_numpy()
+    ).mean()
+
+    # ---------------------------------------------------------
+    # RESULTS
+    # ---------------------------------------------------------
 
     print(
         "\nCase-Wise Feature Selection Evaluation"
@@ -213,21 +360,46 @@ def main() -> None:
     )
 
     print(
-        "\nUnseen-case selection agreement:",
-        f"{agreement_rate:.4f}",
+        "\nBaseline agreement "
+        "(uncertainty + foreground pixels):",
+        f"{baseline_agreement:.4f}",
     )
 
     print(
-        "Unseen-case agreement percentage:",
-        f"{agreement_rate * 100:.2f}%",
+        "Baseline agreement percentage:",
+        f"{baseline_agreement * 100:.2f}%",
     )
 
     print(
-        "\nSelected model counts:"
+        "\nCondition-aware agreement "
+        "(+ MRI condition features):",
+        f"{condition_agreement:.4f}",
     )
 
     print(
-        selected_models.value_counts()
+        "Condition-aware agreement percentage:",
+        f"{condition_agreement * 100:.2f}%",
+    )
+
+    print(
+        "\nAgreement change:",
+        f"{(condition_agreement - baseline_agreement) * 100:+.2f} percentage points",
+    )
+
+    print(
+        "\nBaseline selected model counts:"
+    )
+
+    print(
+        baseline_selected["model"].value_counts()
+    )
+
+    print(
+        "\nCondition-aware selected model counts:"
+    )
+
+    print(
+        condition_selected["model"].value_counts()
     )
 
     print(
