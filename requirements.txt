@@ -1,0 +1,21 @@
+# Major Project — Python requirements
+#
+# Validated environment:
+# Python 3.11.x
+# NVIDIA RTX 4070 Laptop GPU (8 GB)
+# PyTorch 2.11.0+cu128
+#
+# NOTE:
+# PyTorch CUDA wheels are platform/CUDA specific. If recreating this
+# environment on another machine, install the appropriate PyTorch build
+# for that machine first, then install the remaining packages below.
+
+torch==2.11.0
+monai==1.6.0
+nibabel==5.4.2
+scikit-learn==1.9.1
+matplotlib==3.11.2
+pandas==3.0.6
+tqdm==4.70.1
+numpy==2.4.6
+scipy==1.17.1
