@@ -31,6 +31,7 @@ from src.data.dataset import (  # noqa: E402
 from src.evaluation.metrics import SegmentationMetricAccumulator  # noqa: E402
 from src.models.unet import UNet2D, count_parameters  # noqa: E402
 from src.models.unetpp import UNetPlusPlus2D  # noqa: E402
+from src.models.attention_unet import AttentionUNet2D  # noqa: E402
 
 
 try:
@@ -41,7 +42,7 @@ except ImportError:  # pragma: no cover - fallback only used if tqdm is absent.
 
 DEFAULT_RESULTS_DIR = PROJECT_ROOT / "results" / "baseline_unet2d"
 DEFAULT_UNETPP_RESULTS_DIR = PROJECT_ROOT / "results" / "unetpp2d_5ep"
-MODEL_CHOICES = ("unet", "unetpp")
+MODEL_CHOICES = ("unet", "unetpp", "attention_unet")
 
 
 @dataclass(frozen=True)
@@ -677,6 +678,7 @@ def create_model(config: TrainingConfig) -> nn.Module:
             num_classes=config.num_classes,
             base_channels=config.base_channels,
         )
+
     if config.model_name == "unetpp":
         return UNetPlusPlus2D(
             in_channels=4,
@@ -684,6 +686,14 @@ def create_model(config: TrainingConfig) -> nn.Module:
             base_channels=config.base_channels,
             deep_supervision=False,
         )
+
+    if config.model_name == "attention_unet":
+        return AttentionUNet2D(
+            in_channels=4,
+            num_classes=config.num_classes,
+            base_channels=config.base_channels,
+        )
+
     raise ValueError(f"Unsupported model: {config.model_name}")
 
 
