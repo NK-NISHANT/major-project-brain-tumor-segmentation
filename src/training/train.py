@@ -30,6 +30,7 @@ from src.data.dataset import (  # noqa: E402
 )
 from src.evaluation.metrics import SegmentationMetricAccumulator  # noqa: E402
 from src.models.unet import UNet2D, count_parameters  # noqa: E402
+from src.models.unetpp import UNetPlusPlus2D  # noqa: E402
 
 
 try:
@@ -39,10 +40,13 @@ except ImportError:  # pragma: no cover - fallback only used if tqdm is absent.
 
 
 DEFAULT_RESULTS_DIR = PROJECT_ROOT / "results" / "baseline_unet2d"
+DEFAULT_UNETPP_RESULTS_DIR = PROJECT_ROOT / "results" / "unetpp2d_5ep"
+MODEL_CHOICES = ("unet", "unetpp")
 
 
 @dataclass(frozen=True)
 class TrainingConfig:
+    model_name: str = "unet"
     raw_dir: Path = DEFAULT_RAW_DATA_DIR
     results_dir: Path = DEFAULT_RESULTS_DIR
     epochs: int = 5
@@ -107,9 +111,10 @@ class DiceCrossEntropyLoss(nn.Module):
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train a plain 2D U-Net baseline for BraTS-GLI.")
+    parser = argparse.ArgumentParser(description="Train a 2D segmentation model for BraTS-GLI.")
+    parser.add_argument("--model", choices=MODEL_CHOICES, default="unet")
     parser.add_argument("--raw-dir", type=Path, default=DEFAULT_RAW_DATA_DIR)
-    parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
+    parser.add_argument("--results-dir", type=Path, default=None)
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
@@ -128,7 +133,7 @@ def parse_args() -> argparse.Namespace:
     case_batch_group.add_argument("--no-case-wise-batches", dest="case_wise_batches", action="store_false")
     parser.add_argument("--base-channels", type=int, default=32)
     parser.add_argument("--summary-only", action="store_true")
-    parser.add_argument("--history-path", type=Path, default=DEFAULT_RESULTS_DIR / "history.csv")
+    parser.add_argument("--history-path", type=Path, default=None)
     parser.add_argument("--forward-test-only", action="store_true")
     parser.add_argument("--benchmark-data", action="store_true")
     parser.add_argument("--benchmark-batches", type=int, default=64)
@@ -138,15 +143,16 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     if args.summary_only:
-        print_training_summary(args.history_path)
+        print_training_summary(resolve_history_path(args.model, args.history_path))
         return
     if args.forward_test_only:
-        run_forward_pass_test(base_channels=args.base_channels)
+        run_forward_pass_test(model_name=args.model, base_channels=args.base_channels)
         return
 
     config = TrainingConfig(
+        model_name=args.model,
         raw_dir=args.raw_dir,
-        results_dir=args.results_dir,
+        results_dir=resolve_results_dir(args.model, args.results_dir),
         epochs=args.epochs,
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
@@ -201,11 +207,7 @@ def train(config: TrainingConfig) -> list[dict[str, float]]:
         case_wise_batches=config.case_wise_batches,
     )
 
-    model = UNet2D(
-        in_channels=4,
-        num_classes=config.num_classes,
-        base_channels=config.base_channels,
-    ).to(device)
+    model = create_model(config).to(device)
     parameter_count = count_parameters(model)
     criterion = DiceCrossEntropyLoss(
         num_classes=config.num_classes,
@@ -215,9 +217,13 @@ def train(config: TrainingConfig) -> list[dict[str, float]]:
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
 
     config.results_dir.mkdir(parents=True, exist_ok=True)
-    save_json(config.results_dir / "config.json", serialize_config(config, device, parameter_count))
+    save_json(
+        config.results_dir / "config.json",
+        build_experiment_config(config, device, parameter_count, train_dataset, val_dataset),
+    )
 
     print_run_header(
+        model_name=config.model_name,
         device=device,
         train_samples=len(train_dataset),
         val_samples=len(val_dataset),
@@ -418,14 +424,16 @@ def progress(iterable: Iterable, description: str) -> Iterable:
     return iterable
 
 
-def run_forward_pass_test(base_channels: int = 32) -> None:
+def run_forward_pass_test(model_name: str = "unet", base_channels: int = 32) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = UNet2D(in_channels=4, num_classes=4, base_channels=base_channels).to(device)
+    config = TrainingConfig(model_name=model_name, base_channels=base_channels)
+    model = create_model(config).to(device)
     model.eval()
     dummy_input = torch.randn(2, 4, 240, 240, device=device)
     with torch.no_grad():
         logits = model(dummy_input)
     print(f"Device: {device}")
+    print(f"Model: {model_name}")
     print(f"Dummy input shape: {tuple(dummy_input.shape)}")
     print(f"Logit output shape: {tuple(logits.shape)}")
     print(f"Model parameters: {count_parameters(model):,}")
@@ -561,6 +569,35 @@ def save_json(path: Path, data: object) -> None:
         json.dump(data, file, indent=2)
 
 
+def build_experiment_config(
+    config: TrainingConfig,
+    device: torch.device,
+    parameter_count: int,
+    train_dataset: BraTSGLISliceDataset,
+    val_dataset: BraTSGLISliceDataset,
+) -> dict[str, object]:
+    data = serialize_config(config, device, parameter_count)
+    data.update(
+        {
+            "input_channels": 4,
+            "output_classes": config.num_classes,
+            "optimizer": "AdamW",
+            "loss": "Dice + Cross Entropy",
+            "deep_supervision": False if config.model_name == "unetpp" else None,
+            "dataset_split": {
+                "train_cases": train_dataset.case_count,
+                "validation_cases": val_dataset.case_count,
+                "train_slices": len(train_dataset),
+                "validation_slices": len(val_dataset),
+                "split_level": "case",
+                "val_fraction": config.val_fraction,
+                "seed": config.seed,
+            },
+        }
+    )
+    return data
+
+
 def serialize_config(
     config: TrainingConfig,
     device: torch.device | None,
@@ -576,6 +613,8 @@ def serialize_config(
 
 
 def validate_config(config: TrainingConfig) -> None:
+    if config.model_name not in MODEL_CHOICES:
+        raise ValueError(f"model_name must be one of {MODEL_CHOICES}.")
     if config.epochs <= 0:
         raise ValueError("epochs must be positive.")
     if config.batch_size <= 0:
@@ -602,6 +641,7 @@ def set_reproducible_seed(seed: int) -> None:
 
 
 def print_run_header(
+    model_name: str,
     device: torch.device,
     train_samples: int,
     val_samples: int,
@@ -610,6 +650,7 @@ def print_run_header(
     learning_rate: float,
     parameter_count: int,
 ) -> None:
+    print(f"Model: {model_name}")
     print(f"Device: {device}")
     print(f"Training samples: {train_samples}")
     print(f"Validation samples: {val_samples}")
@@ -627,6 +668,37 @@ def is_cuda_oom(error: RuntimeError) -> bool:
 def clear_cuda_cache() -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+def create_model(config: TrainingConfig) -> nn.Module:
+    if config.model_name == "unet":
+        return UNet2D(
+            in_channels=4,
+            num_classes=config.num_classes,
+            base_channels=config.base_channels,
+        )
+    if config.model_name == "unetpp":
+        return UNetPlusPlus2D(
+            in_channels=4,
+            num_classes=config.num_classes,
+            base_channels=config.base_channels,
+            deep_supervision=False,
+        )
+    raise ValueError(f"Unsupported model: {config.model_name}")
+
+
+def resolve_results_dir(model_name: str, requested_results_dir: Path | None) -> Path:
+    if requested_results_dir is not None:
+        return requested_results_dir
+    if model_name == "unetpp":
+        return DEFAULT_UNETPP_RESULTS_DIR
+    return DEFAULT_RESULTS_DIR
+
+
+def resolve_history_path(model_name: str, requested_history_path: Path | None) -> Path:
+    if requested_history_path is not None:
+        return requested_history_path
+    return resolve_results_dir(model_name, None) / "history.csv"
 
 
 if __name__ == "__main__":
