@@ -1,0 +1,21 @@
+{
+  "best_checkpoint": "results\\baseline_unet2d_5ep\\best_model.pt",
+  "final_checkpoint": "results\\baseline_unet2d_5ep\\final_model.pt",
+  "best_mean_dice": 0.7711259927467307,
+  "final_epoch": {
+    "epoch": 5.0,
+    "training_loss": 0.31333399956003893,
+    "validation_loss": 0.3563959121454439,
+    "mean_dice": 0.7711259927467307,
+    "mean_iou": 0.6329218139026975,
+    "dice_class_0": 0.9975381967993985,
+    "dice_class_1": 0.6827561911910923,
+    "dice_class_2": 0.7744045531665146,
+    "dice_class_3": 0.856217233882585,
+    "iou_class_0": 0.9950884847826788,
+    "iou_class_1": 0.5183218069618117,
+    "iou_class_2": 0.6318598483433566,
+    "iou_class_3": 0.7485837864029243
+  },
+  "runtime_minutes": 39.942337568333336
+}

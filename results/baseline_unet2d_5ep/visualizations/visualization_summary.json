@@ -1,0 +1,100 @@
+{
+  "checkpoint": "D:\\MajorProject\\results\\baseline_unet2d_5ep\\best_model.pt",
+  "output_dir": "D:\\MajorProject\\results\\baseline_unet2d_5ep\\visualizations",
+  "device": "cuda",
+  "num_validation_slices": 3223,
+  "modality": "t1c",
+  "label_note": "Segmentation labels are shown only as numeric class IDs 0, 1, 2, 3.",
+  "samples": [
+    {
+      "dataset_index": 3149,
+      "case_id": "BraTS-GLI-01416-000",
+      "axial_slice_index": 90,
+      "foreground_pixels": 5165,
+      "foreground_percent": 8.96701388888889,
+      "unique_labels": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "image_path": "D:\\MajorProject\\results\\baseline_unet2d_5ep\\visualizations\\sample_01_BraTS-GLI-01416-000_slice_090.png",
+      "metrics": {
+        "mean_dice": 0.6781789826360688,
+        "mean_iou": 0.5255906890795744,
+        "per_class_dice": [
+          0.994285931602316,
+          0.5553869499241275,
+          0.6428862617203425,
+          0.8362637362637363
+        ],
+        "per_class_iou": [
+          0.9886367933446776,
+          0.38445378151260506,
+          0.4737158305797537,
+          0.7186024551463644
+        ]
+      }
+    },
+    {
+      "dataset_index": 2206,
+      "case_id": "BraTS-GLI-00734-001",
+      "axial_slice_index": 62,
+      "foreground_pixels": 4261,
+      "foreground_percent": 7.397569444444445,
+      "unique_labels": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "image_path": "D:\\MajorProject\\results\\baseline_unet2d_5ep\\visualizations\\sample_02_BraTS-GLI-00734-001_slice_062.png",
+      "metrics": {
+        "mean_dice": 0.927726121604946,
+        "mean_iou": 0.867258249928398,
+        "per_class_dice": [
+          0.9979126299926053,
+          0.8776119402985074,
+          0.9449929478138223,
+          0.9605734767025089
+        ],
+        "per_class_iou": [
+          0.9958339560603796,
+          0.7819148936170213,
+          0.8957219251336899,
+          0.9241379310344827
+        ]
+      }
+    },
+    {
+      "dataset_index": 3055,
+      "case_id": "BraTS-GLI-01403-000",
+      "axial_slice_index": 80,
+      "foreground_pixels": 3673,
+      "foreground_percent": 6.376736111111112,
+      "unique_labels": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "image_path": "D:\\MajorProject\\results\\baseline_unet2d_5ep\\visualizations\\sample_03_BraTS-GLI-01403-000_slice_080.png",
+      "metrics": {
+        "mean_dice": 0.8733868924511814,
+        "mean_iou": 0.7809396996397465,
+        "per_class_dice": [
+          0.9973573183735918,
+          0.8848314606741573,
+          0.7896551724137931,
+          0.9456740442655935
+        ],
+        "per_class_iou": [
+          0.9947285674650883,
+          0.7934508816120907,
+          0.6524216524216524,
+          0.8969465648854962
+        ]
+      }
+    }
+  ]
+}
