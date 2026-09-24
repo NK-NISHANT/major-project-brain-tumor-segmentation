@@ -34,3 +34,6 @@ results/models/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Experiment outputs
+results/
