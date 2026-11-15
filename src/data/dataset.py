@@ -115,10 +115,20 @@ def create_train_val_datasets(
     background_slice_ratio: float = 0.25,
     seed: int = 42,
     case_cache_size: int = 1,
+    exclude_val_subject_companions: bool = False,
 ) -> tuple["BraTSGLISliceDataset", "BraTSGLISliceDataset"]:
-    """Create train/validation datasets using a deterministic case-level split."""
+    """Create train/validation datasets using a deterministic case-level split.
+
+    If exclude_val_subject_companions is True, all companion longitudinal scans of
+    the validation subjects are excluded from the training split, establishing a
+    strict subject-disjoint cohort and eliminating patient-level leakage.
+    """
     cases = discover_valid_cases(raw_dir)
     train_cases, val_cases = split_cases(cases, val_fraction=val_fraction, seed=seed)
+
+    if exclude_val_subject_companions:
+        val_subjects = {c.case_id.rsplit("-", 1)[0] for c in val_cases}
+        train_cases = [c for c in train_cases if c.case_id.rsplit("-", 1)[0] not in val_subjects]
 
     train_dataset = BraTSGLISliceDataset(
         train_cases,

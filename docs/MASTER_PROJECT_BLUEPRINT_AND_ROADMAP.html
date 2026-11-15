@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Master Project Blueprint & Complete Execution Roadmap</title>
+<style>
+    @page {
+        size: A4;
+        margin: 20mm 18mm 22mm 18mm;
+        @bottom-right {
+            content: "Page " counter(page) " of " counter(pages);
+            font-size: 8pt;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #666;
+        }
+        @bottom-left {
+            content: "JIIT Noida • B.Tech Major Project • Brain Tumor Segmentation";
+            font-size: 8pt;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #666;
+        }
+    }
+
+    body {
+        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+        font-size: 9.5pt;
+        line-height: 1.5;
+        color: #24292f;
+        background-color: #ffffff;
+        margin: 0;
+        padding: 0;
+    }
+
+    /* Page Breaks */
+    .page-break {
+        page-break-after: always;
+        break-after: page;
+    }
+    .no-break {
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+
+    /* Typography */
+    h1, h2, h3, h4, h5 {
+        color: #0f3460;
+        font-weight: 700;
+        margin-top: 18pt;
+        margin-bottom: 6pt;
+        page-break-after: avoid;
+    }
+    h1 { font-size: 20pt; border-bottom: 2px solid #0f3460; padding-bottom: 4pt; }
+    h2 { font-size: 14pt; border-bottom: 1px solid #e1e4e8; padding-bottom: 3pt; color: #16213e; }
+    h3 { font-size: 11pt; color: #1f4068; }
+    h4 { font-size: 10pt; color: #333333; }
+
+    p { margin-top: 0; margin-bottom: 6pt; text-align: justify; }
+
+    /* Cover Page */
+    .cover-page {
+        height: 240mm;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        text-align: center;
+        padding: 20mm 10mm;
+        page-break-after: always;
+    }
+    .cover-inst {
+        font-size: 13pt;
+        font-weight: 700;
+        color: #1a1a2e;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        margin-bottom: 4px;
+    }
+    .cover-dept {
+        font-size: 10pt;
+        color: #555;
+        margin-bottom: 25mm;
+    }
+    .cover-title-box {
+        background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+        color: white;
+        padding: 15mm 10mm;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        margin-bottom: 15mm;
+    }
+    .cover-title {
+        font-size: 19pt;
+        font-weight: 800;
+        line-height: 1.3;
+        margin: 0 0 10pt 0;
+        color: #ffffff;
+    }
+    .cover-subtitle {
+        font-size: 11pt;
+        font-weight: 400;
+        color: #e2e8f0;
+        margin: 0;
+    }
+    .cover-badge {
+        display: inline-block;
+        background-color: #e94560;
+        color: white;
+        font-size: 8.5pt;
+        font-weight: 700;
+        padding: 4px 12px;
+        border-radius: 12px;
+        text-transform: uppercase;
+        margin-top: 10pt;
+        letter-spacing: 1px;
+    }
+    .cover-meta {
+        font-size: 9.5pt;
+        color: #333;
+        text-align: left;
+        display: flex;
+        justify-content: space-between;
+        margin: 0 15mm 15mm 15mm;
+        border-top: 1px solid #ddd;
+        border-bottom: 1px solid #ddd;
+        padding: 12pt 0;
+    }
+    .cover-meta-col { width: 48%; }
+    .cover-meta-col strong { color: #0f3460; }
+    .cover-footer {
+        font-size: 8.5pt;
+        color: #777;
+        margin-top: 10mm;
+    }
+
+    /* Tables */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 8pt 0 12pt 0;
+        font-size: 8.5pt;
+    }
+    th, td {
+        border: 1px solid #d0d7de;
+        padding: 5pt 7pt;
+        text-align: left;
+    }
+    th {
+        background-color: #0f3460;
+        color: #ffffff;
+        font-weight: 600;
+    }
+    tr:nth-child(even) { background-color: #f6f8fa; }
+    tr:hover { background-color: #f1f4f8; }
+
+    /* Alert / Callout Boxes */
+    .callout {
+        padding: 8pt 12pt;
+        border-left: 4px solid;
+        border-radius: 0 4px 4px 0;
+        margin: 8pt 0 10pt 0;
+        font-size: 9pt;
+    }
+    .callout-blue { background-color: #eef5fc; border-color: #2b7de9; color: #10325c; }
+    .callout-green { background-color: #edfcf2; border-color: #28a745; color: #0d4a1c; }
+    .callout-yellow { background-color: #fffbeb; border-color: #f59e0b; color: #78350f; }
+    .callout-red { background-color: #fef2f2; border-color: #ef4444; color: #7f1d1d; }
+    .callout-title { font-weight: 700; margin-bottom: 3pt; display: block; font-size: 9.5pt; }
+
+    /* Badges */
+    .badge {
+        display: inline-block;
+        padding: 2px 7px;
+        font-size: 7.5pt;
+        font-weight: 700;
+        border-radius: 4px;
+        text-transform: uppercase;
+    }
+    .badge-done { background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
+    .badge-pending { background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    .badge-locked { background-color: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    .badge-champion { background-color: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+
+    /* Code blocks */
+    pre, code {
+        font-family: 'Consolas', 'Courier New', Courier, monospace;
+    }
+    pre {
+        background-color: #f6f8fa;
+        border: 1px solid #d0d7de;
+        border-radius: 4px;
+        padding: 8pt 10pt;
+        font-size: 8pt;
+        line-height: 1.4;
+        overflow-x: auto;
+        margin: 6pt 0 10pt 0;
+        color: #1f2328;
+    }
+    p code {
+        background-color: #f1f3f5;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 8.5pt;
+        color: #0f3460;
+        border: 1px solid #e1e4e8;
+    }
+
+    /* Lists */
+    ul, ol { margin-top: 2pt; margin-bottom: 6pt; padding-left: 18pt; }
+    li { margin-bottom: 3pt; text-align: justify; }
+
+    /* Architecture / Flow diagrams in HTML */
+    .flow-step {
+        background-color: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 8pt 12pt;
+        margin-bottom: 8pt;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .flow-step-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 4pt;
+        border-bottom: 1px solid #f1f5f9;
+        padding-bottom: 3pt;
+    }
+    .flow-step-title {
+        font-weight: 700;
+        color: #0f3460;
+        font-size: 10pt;
+    }
+
+    .toc {
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 12pt 16pt;
+        margin-bottom: 15pt;
+    }
+    .toc ul { list-style-type: none; padding-left: 0; }
+    .toc li { margin-bottom: 4pt; }
+    .toc a { text-decoration: none; color: #0f3460; font-weight: 600; }
+    .toc a:hover { text-decoration: underline; }
+    .toc-dots { float: right; color: #64748b; font-weight: 400; }
+
+</style>
+</head>
+<body>
+
+<!-- ================= COVER PAGE ================= -->
+<div class="cover-page">
+    <div>
+        <div class="cover-inst">Jaypee Institute of Information Technology, Noida</div>
+        <div class="cover-dept">Department of Computer Science & Engineering • Final Year B.Tech Major Project</div>
+    </div>
+
+    <div>
+        <div class="cover-title-box">
+            <h1 class="cover-title">Reliability-Aware AI Agent for Brain Tumor Segmentation Using Multimodal MRI, 2D CNNs, and Selective Uncertainty Calibration</h1>
+            <p class="cover-subtitle">Complete Architectural Blueprint, Quantitative Evidence Archive, and End-to-End Master Execution Roadmap</p>
+            <div class="cover-badge">Master Single Source of Truth (SSOT) • Version 2.0</div>
+        </div>
+    </div>
+
+    <div class="cover-meta">
+        <div class="cover-meta-col">
+            <p><strong>Student Team:</strong><br>
+            • Nishant Kumar (Enrollment: 9923103009)<br>
+            • Mohammad Tariq (Enrollment: 9923103011)<br>
+            • Mohammad Kaif (Enrollment: 9923103012)</p>
+            <p><strong>Academic Program:</strong><br>
+            B.Tech Computer Science & Engineering (7th & 8th Sem)</p>
+        </div>
+        <div class="cover-meta-col">
+            <p><strong>Project Supervisor:</strong><br>
+            Dr. Ruchika Bala<br>
+            Assistant Professor (Senior Grade), CSE/IT Department</p>
+            <p><strong>Repository & Compute Environment:</strong><br>
+            <code>D:\MajorProject</code> • Python 3.11.9 • PyTorch 2.6.0+cu124<br>
+            NVIDIA GeForce RTX 4070 Laptop GPU (8 GB VRAM)</p>
+        </div>
+    </div>
+
+    <div class="cover-footer">
+        Document Compiled: November 2026 • Verified Against 109 Automated Unit Tests • Cryptographically Signed Splits
+    </div>
+</div>
+
+<!-- ================= TABLE OF CONTENTS & EXECUTIVE SUMMARY ================= -->
+<h2>Executive Summary & Table of Contents</h2>
+
+<div class="toc">
+    <ul>
+        <li><a href="#sec1">1. Why This Master Blueprint Exists (Solving Plan Drift)</a> <span class="toc-dots">Section 1</span></li>
+        <li><a href="#sec2">2. Core Objective, Clinical Problem & Final Deliverables</a> <span class="toc-dots">Section 2</span></li>
+        <li><a href="#sec3">3. The 10 Inviolable Rules & System Constraints</a> <span class="toc-dots">Section 3</span></li>
+        <li><a href="#sec4">4. The Definitive Model Strategy: Resolving 5 vs 6–8 Models</a> <span class="toc-dots">Section 4</span></li>
+        <li><a href="#sec5">5. Dataset Census, Patient-Level Splitting & Quarantine Protocol</a> <span class="toc-dots">Section 5</span></li>
+        <li><a href="#sec6">6. Quantitative Evidence Archive: 5-Epoch Pilots vs 15-Epoch Full Training</a> <span class="toc-dots">Section 6</span></li>
+        <li><a href="#sec7">7. The Reliability Agent: Probability Calibration & Selective Triage</a> <span class="toc-dots">Section 7</span></li>
+        <li><a href="#sec8">8. The Clinical Showcase: Streamlit PACS/Triage Dashboard</a> <span class="toc-dots">Section 8</span></li>
+        <li><a href="#sec9">9. Master Phase-by-Phase Execution Roadmap (Phases 0 through 8)</a> <span class="toc-dots">Section 9</span></li>
+        <li><a href="#sec10">10. Historical Discrepancy & Bug Fix Inventory</a> <span class="toc-dots">Section 10</span></li>
+        <li><a href="#sec11">11. AI Re-Initialization System Prompt (Next Session Anchor)</a> <span class="toc-dots">Section 11</span></li>
+    </ul>
+</div>
+
+<div class="callout callout-green">
+    <span class="callout-title">Project Health Audit Verified Status: 40.3 / 50.0 (80.6% • Grade A-)</span>
+    All foundational machine learning, dataset census, 15-epoch training, post-hoc temperature calibration, and selective triage remediation are 100% complete. 109 automated unit tests pass without error. The repository is in an advanced, stable state with only final test-set benchmarking, UI polish, and thesis recompilation remaining.
+</div>
+
+<h2 id="sec1">1. Why This Master Blueprint Exists (Solving Plan Drift)</h2>
+<p>
+Throughout a multi-month engineering project, conversations with large language models inevitably suffer from <strong>context window decay</strong>. As conversation lengths grow beyond tens of thousands of lines, standard AI sessions begin forgetting foundational design decisions, proposed roadmaps, parameter counts, and constraints. This led to serious issues in earlier iterations:
+</p>
+<ul>
+    <li>Proposing new, extraneous models (e.g., trying to train 6 to 8 architectures or attempting 3D models that would crash the 8 GB GPU).</li>
+    <li>Proposing conflicting software stacks (switching between Streamlit, React+FastAPI, and cross-platform mobile apps).</li>
+    <li>Confusing the 197-case controlled development pilot with the full 1,251-case dataset.</li>
+    <li>Suggesting automated model-switching policies that degraded Dice, rather than sticking to the proven <em>selective prediction / clinical triage</em> framing.</li>
+</ul>
+<p>
+<strong>This document is the permanent, unalterable anchor for the project.</strong> Every future step, script, thesis chapter, and presentation must conform directly to the specifications, numbers, and roadmaps documented here.
+</p>
+
+<!-- ================= SECTION 2: CORE OBJECTIVE ================= -->
+<div class="page-break"></div>
+<h2 id="sec2">2. Core Objective, Clinical Problem & Final Deliverables</h2>
+
+<h3>2.1 Formal Academic Title</h3>
+<p>
+<strong>"Reliability-Aware AI Agent for Brain Tumor Segmentation Using Multimodal MRI, 2D CNNs, and Selective Uncertainty Calibration"</strong>
+</p>
+
+<h3>2.2 The Real Clinical Problem</h3>
+<p>
+Deep learning models for medical image segmentation typically output raw softmax probabilities that are severely <strong>miscalibrated</strong>—models predict segmentations with 95%+ confidence on ambiguous tumor boundaries where the actual spatial overlap (Dice score) is catastrophic ($Dice < 0.50$). In neuro-oncology surgical planning, an undetected lesion boundary or a hallucinated tumor volume has immediate patient safety consequences.
+</p>
+<p>
+Furthermore, a single model cannot be universally trusted across all anatomical slice locations. In 2D axial MRI, central slices with large, distinct tumor cores behave very differently from peripheral slices near the skull vertex or base, where contrast is low and volume is minimal.
+</p>
+
+<h3>2.3 The Three Core Contributions of Our Solution</h3>
+<ol>
+    <li><strong>Lightweight Champion Segmentor (ResUNet-2D):</strong> We designed a custom 2D Residual U-Net utilizing pre-activation residual blocks, Group Normalization ($G=8$), and bias-free convolutions. With only 8.11M parameters and 538 MB peak VRAM, it outperforms heavy transfer learning architectures while remaining fully trainable on consumer laptop hardware.</li>
+    <li><strong>Post-Hoc Probability Calibration:</strong> We implement parameter-efficient Temperature Scaling ($T^* = 2.8808$), optimized via L-BFGS on hold-out validation cases. This reduces Expected Calibration Error (ECE) by <strong>60.1%</strong> ($8.61\% 
+ightarrow 3.44\%$) while strictly preserving spatial argmax predictions ($Dice = 0.8641$ invariant).</li>
+    <li><strong>Selective Prediction & Radiological Triage Agent:</strong> Operating on calibrated predictive entropy, our decision agent filters out the 15.94% lowest-quality, most degraded slices (mean Dice 0.4994) and defers them for human radiologist review, while automatically approving 84.06% of high-confidence slices (mean Dice 0.8303).</li>
+</ol>
+
+<h3>2.4 Required Academic Deliverables</h3>
+<table>
+    <tr>
+        <th>Deliverable</th>
+        <th>Target Specification</th>
+        <th>Current Status</th>
+    </tr>
+    <tr>
+        <td><strong>Trained PyTorch Models</strong></td>
+        <td>Checkpoints for 5 models; champion weights verified with SHA-256</td>
+        <td><span class="badge badge-done">Completed (Gate 5D)</span></td>
+    </tr>
+    <tr>
+        <td><strong>Calibrated Triage Pipeline</strong></td>
+        <td>Temperature scaling, calibrated entropy, subject-level evaluation</td>
+        <td><span class="badge badge-done">Completed (Gate 6A Remediated)</span></td>
+    </tr>
+    <tr>
+        <td><strong>Clinical Demonstration UI</strong></td>
+        <td>Streamlit PACS viewer, axial navigation, triage flags, heatmaps</td>
+        <td><span class="badge badge-pending">Prototype Built; Needs Update</span></td>
+    </tr>
+    <tr>
+        <td><strong>Locked Test Set Benchmark</strong></td>
+        <td>Single-pass evaluation on 155 quarantined cases (Dice, IoU, HD95)</td>
+        <td><span class="badge badge-locked">Quarantined (Gate 6B)</span></td>
+    </tr>
+    <tr>
+        <td><strong>Major Project Dissertation</strong></td>
+        <td>55–65 pages adhering to JIIT CSE rubric, 7 formal chapters</td>
+        <td><span class="badge badge-pending">Draft Outdated; Needs Rewrite</span></td>
+    </tr>
+    <tr>
+        <td><strong>Viva Defense Presentation</strong></td>
+        <td>18 slides, "5-Minute Whiteboard" derivation, examiner defense script</td>
+        <td><span class="badge badge-pending">Outline Ready; Needs Deck</span></td>
+    </tr>
+</table>
+
+<!-- ================= SECTION 3: INVIOLABLE RULES ================= -->
+<h2 id="sec3">3. The 10 Inviolable Rules & System Constraints</h2>
+
+<div class="callout callout-red">
+    <span class="callout-title">CRITICAL PROTOCOL: MANDATORY ADHERENCE</span>
+    These 10 rules were established during the project lifecycle and must never be broken by any AI assistant or developer working in this repository.
+</div>
+
+<ol>
+    <li><strong>Rule 1: Strict Test Set Quarantine (155 Cases Sealed):</strong> The 155 test cases in <code>results/dataset_splits/test_manifest.json</code> (SHA-256: <code>694faaa4...</code>) are 100% quarantined. Never inspect, load, infer on, or evaluate test-set data until Gate 6B is explicitly authorized.</li>
+    <li><strong>Rule 2: Zero Unauthorized Compute (Gate System):</strong> No full training runs, expensive grid searches, or major code refactoring may begin without explicit user sign-off.</li>
+    <li><strong>Rule 3: Scientific Framing Integrity:</strong> Never claim the agent improves automated Dice score over standalone ResUNet-2D. Falling back to UNetResNet34 actually degrades mean Dice slightly ($0.8641 
+ightarrow 0.8621$). The agent's verified contribution is <em>Probability Calibration (-60% ECE)</em> and <em>Selective Triage (flagging 15.94% bad slices)</em>.</li>
+    <li><strong>Rule 4: Zero Patient Leakage (Subject-Level Disjoint Splitting):</strong> Longitudinal scans belonging to the same subject (e.g., <code>00008-000</code> and <code>00008-001</code>) must always reside in the same split partition.</li>
+    <li><strong>Rule 5: The "5-Minute Whiteboard Test":</strong> All code, losses, and agent logic must be simple and mathematically explainable by the students during their viva. No unnecessary black-box frameworks or overly decorative jargon.</li>
+    <li><strong>Rule 6: 8 GB VRAM Consumer Hardware Ceiling:</strong> Peak GPU memory must stay below 7.0 GB on the RTX 4070 Laptop GPU. All batch sizes for 2D slices are fixed at 2.</li>
+    <li><strong>Rule 7: Strict PyTorch Stack:</strong> TensorFlow, Keras, and MATLAB are strictly prohibited by university regulations.</li>
+    <li><strong>Rule 8: Cryptographic Provenance Binding:</strong> All evaluation outputs and caches must store SHA-256 hashes of checkpoints, split manifests, and scripts.</li>
+    <li><strong>Rule 9: Never Touch Test Labels for Hyperparameters:</strong> Calibration temperatures and uncertainty thresholds must be fitted exclusively on the 50-case calibration cohort (`Val_cal`).</li>
+    <li><strong>Rule 10: Environmental Safety:</strong> Never execute shutdown, restart, or power-state modifying scripts.</li>
+</ol>
+
+<!-- ================= SECTION 4: DEFINITIVE MODEL STRATEGY ================= -->
+<div class="page-break"></div>
+<h2 id="sec4">4. The Definitive Model Strategy: Resolving 5 vs 6–8 Models</h2>
+
+<p>
+A recurring source of confusion in earlier chats was: <em>"Should we train 6 to 8 models, or are our 5 models sufficient?"</em><br>
+<strong>Definitive Technical Answer: Our 5 implemented architectures represent a complete, scientifically defensible comparative study that perfectly fits our 8 GB hardware constraints.</strong> Adding arbitrary extra models would be redundant and would compromise project delivery.
+</p>
+
+<h3>4.1 The 5 Implemented Architectures & Their Academic Rationale</h3>
+<table>
+    <tr>
+        <th>No.</th>
+        <th>Architecture</th>
+        <th>Parameters</th>
+        <th>Training Tier</th>
+        <th>Academic Role in Project</th>
+        <th>Status</th>
+    </tr>
+    <tr>
+        <td>1</td>
+        <td><strong>UNet-2D</strong></td>
+        <td>7,763,428</td>
+        <td>5 Epochs (197 Cases)</td>
+        <td><strong>Canonical Baseline:</strong> Establishes foundational encoder-decoder performance (Dice 0.7711). Proves standard skip connection behavior.</td>
+        <td><span class="badge badge-done">Completed</span></td>
+    </tr>
+    <tr>
+        <td>2</td>
+        <td><strong>UNetPlusPlus-2D</strong></td>
+        <td>9,160,068</td>
+        <td>5 Epochs (197 Cases)</td>
+        <td><strong>Nested Dense Pathways:</strong> Evaluates intermediate deep supervision and dense multi-scale feature aggregation (Dice 0.7937).</td>
+        <td><span class="badge badge-done">Completed</span></td>
+    </tr>
+    <tr>
+        <td>3</td>
+        <td><strong>AttentionUNet-2D</strong></td>
+        <td>7,852,160</td>
+        <td>5 Epochs (197 Cases)</td>
+        <td><strong>Attention Gating:</strong> Evaluates decoder-guided additive spatial attention gates on skip connections to suppress background noise (Dice 0.7291).</td>
+        <td><span class="badge badge-done">Completed</span></td>
+    </tr>
+    <tr>
+        <td>4</td>
+        <td><strong>ResUNet-2D</strong></td>
+        <td><strong>8,114,604</strong></td>
+        <td><strong>15 Epochs (721 Cases)</strong></td>
+        <td><strong>Leading Champion Model:</strong> Pre-activation residual units with Group Normalization ($G=8$). Solves vanishing gradients; achieves highest validation Dice (<strong>0.8670</strong>) and evaluation Dice (<strong>0.8641</strong>).</td>
+        <td><span class="badge badge-champion">Champion</span></td>
+    </tr>
+    <tr>
+        <td>5</td>
+        <td><strong>UNetResNet34</strong></td>
+        <td>24,327,524</td>
+        <td>15 Epochs (721 Cases)</td>
+        <td><strong>Heavy Transfer Backbone:</strong> Evaluates pretrained ResNet-34 encoder. Proves overparameterization leads to severe overfitting on 2D MRI (Val loss 0.5166).</td>
+        <td><span class="badge badge-done">Completed</span></td>
+    </tr>
+</table>
+
+<h3>4.2 Why Models 6, 7 & 8 Were Formally Scoped Out</h3>
+<ul>
+    <li><strong>TransUNet (CNN-Transformer Hybrid):</strong> Vision Transformer self-attention blocks on $(240 	imes 240)$ feature maps require $\ge 12$ GB VRAM for batch size 2. On an 8 GB laptop GPU, attempting TransUNet triggers CUDA Out-Of-Memory errors or forces severe patch downsampling that destroys fine tumor boundaries.</li>
+    <li><strong>3D U-Net (Volumetric Convolutions):</strong> True 3D convolutions on $(155 	imes 240 	imes 240)$ volumes require 16+ GB VRAM. Sub-volume patch cropping ($96 	imes 96 	imes 96$) introduces severe boundary stitching artifacts and takes over 40 GPU-hours per run.</li>
+    <li><strong>MedSAM (Medical Segment Anything Model):</strong> Evaluated following a supervisor inquiry. MedSAM has 360M+ parameters, requires manual point/box prompts per slice (cannot autonomously segment 155 slices per patient), and produces uncalibrated confidence outputs.</li>
+</ul>
+<div class="callout callout-blue">
+    <span class="callout-title">Academic Defense Justification</span>
+    In your dissertation (Chapter 2 & Chapter 7), document TransUNet, 3D U-Net, and MedSAM as <em>"Formally Analyzed Architectural Boundaries & Feasibility Constraints"</em>. Examiners will appreciate this evidence-based engineering constraint analysis far more than an incomplete or broken experimental run.
+</div>
+
+<!-- ================= SECTION 5: DATASET CENSUS ================= -->
+<h2 id="sec5">5. Dataset Census, Patient-Level Splitting & Quarantine Protocol</h2>
+
+<h3>5.1 Dataset Demographics</h3>
+<ul>
+    <li><strong>Source Cohort:</strong> BraTS 2023 Adult Glioma (GLI) Challenge Training Archive.</li>
+    <li><strong>Physical Census:</strong> Exactly 1,251 case directories verified across 1,133 unique patient subjects.</li>
+    <li><strong>Volume Geometry:</strong> Standardized $240 	imes 240 	imes 155$ voxels across all cases.</li>
+    <li><strong>Modality Channels (4):</strong> T1-native (T1n), T1-contrast (T1c), T2-weighted (T2w), T2-FLAIR (T2f).</li>
+    <li><strong>Ground Truth Classes (4):</strong> 0: Background, 1: Necrotic Tumor Core (NCR), 2: Peritumoral Edema (ED), 3: GD-Enhancing Tumor (ET).</li>
+</ul>
+
+<h3>5.2 Two-Stage Dataset Strategy (Controlled Pilot vs Full Scale)</h3>
+<p>
+To prevent wasting hundreds of hours of training time, the project was executed in two deliberate stages:
+</p>
+<ol>
+    <li><strong>Stage 1: Controlled Development Pilot (197 Cases):</strong> Partitioned into 158 training cases (13,074 slices) and 39 validation cases (3,223 slices). Used for initial 5-epoch feasibility benchmarking across U-Net, U-Net++, and Attention U-Net.</li>
+    <li><strong>Stage 2: Full-Scale Patient-Level Split (1,251 Cases / 1,133 Subjects):</strong> Partitioned using Seed 42 with strict subject-level grouping:
+        <ul>
+            <li><strong>Training Cohort:</strong> 847 unique subjects (941 cases). Active 15-epoch training utilized 721 cases.</li>
+            <li><strong>Validation Cohort:</strong> 143 unique subjects (155 cases). Sub-partitioned into 50 calibration cases (`Val_cal`) and 105 evaluation cases (`Val_eval`).</li>
+            <li><strong>Test Cohort:</strong> 143 unique subjects (155 cases) — <strong>100% QUARANTINED</strong>.</li>
+        </ul>
+    </li>
+</ol>
+
+<!-- ================= SECTION 6: QUANTITATIVE EVIDENCE ================= -->
+<div class="page-break"></div>
+<h2 id="sec6">6. Quantitative Evidence Archive: 5-Epoch Pilots vs 15-Epoch Full Training</h2>
+
+<h3>6.1 Stage 1: 5-Epoch Baseline Benchmarking Results (197 Cases)</h3>
+<p>
+All models trained on 158 cases with batch size 2, AdamW ($LR=10^{-3}$), combined Dice + Cross-Entropy loss on RTX 4070 Laptop GPU:
+</p>
+<table>
+    <tr>
+        <th>Model Architecture</th>
+        <th>Parameters</th>
+        <th>Best Epoch</th>
+        <th>Best Val Mean Dice</th>
+        <th>Best Val Mean IoU</th>
+        <th>Measured Runtime</th>
+    </tr>
+    <tr>
+        <td><strong>U-Net-2D</strong></td>
+        <td>7,763,428</td>
+        <td>5</td>
+        <td>0.7711</td>
+        <td>0.6329</td>
+        <td>39.9 min</td>
+    </tr>
+    <tr>
+        <td><strong>U-Net++ (Deep Supervision)</strong></td>
+        <td>9,160,068</td>
+        <td>4</td>
+        <td><strong>0.7937</strong></td>
+        <td><strong>0.6582</strong></td>
+        <td>67.3 min</td>
+    </tr>
+    <tr>
+        <td><strong>Attention U-Net</strong></td>
+        <td>7,852,160</td>
+        <td>4</td>
+        <td>0.7291</td>
+        <td>0.5886</td>
+        <td>40.0 min</td>
+    </tr>
+</table>
+
+<h4>Critical Uncertainty Discovery from Stage 1:</h4>
+<ul>
+    <li>Predictive foreground entropy strongly correlated with segmentation failure: Spearman $
+ho = -0.6542$.</li>
+    <li>ROC-AUC for identifying low-quality slices ($Dice < 0.50$): **0.8059**.</li>
+    <li><strong>The Paradox:</strong> The model with the lowest uncertainty matched the model with the highest Dice only <strong>48.35%</strong> of the time. This mathematically proved that uncertainty alone cannot select the winning model, establishing the formal requirement for our multi-signal reliability agent.</li>
+</ul>
+
+<h3>6.2 Stage 2: Gate 5D Full-Scale 15-Epoch Training Results (721 Cases)</h3>
+<p>
+Trained with batch size 2, AdamW, cosine annealing learning rate scheduler, combined Dice + CE loss:
+</p>
+<table>
+    <tr>
+        <th>Metric / Parameter</th>
+        <th>ResUNet-2D (Champion)</th>
+        <th>UNetResNet34 (Comparison)</th>
+        <th>Technical Implication</th>
+    </tr>
+    <tr>
+        <td><strong>Total Parameters</strong></td>
+        <td><strong>8,114,604</strong></td>
+        <td>24,327,524</td>
+        <td>ResUNet is 3.0× more parameter-efficient</td>
+    </tr>
+    <tr>
+        <td><strong>Peak VRAM Usage</strong></td>
+        <td><strong>538.6 MB</strong></td>
+        <td>781.0 MB</td>
+        <td>Both fit easily inside 8 GB VRAM budget</td>
+    </tr>
+    <tr>
+        <td><strong>Total Training Runtime</strong></td>
+        <td><strong>8.09 hours</strong></td>
+        <td>10.80 hours</td>
+        <td>ResUNet trained 25% faster</td>
+    </tr>
+    <tr>
+        <td><strong>Best Validation Epoch</strong></td>
+        <td>Epoch 13</td>
+        <td>Epoch 15</td>
+        <td>ResUNet converged early and stably</td>
+    </tr>
+    <tr>
+        <td><strong>Best Validation Mean Dice</strong></td>
+        <td><strong>0.8670</strong></td>
+        <td>0.8554</td>
+        <td>ResUNet achieves +1.16% higher peak validation Dice</td>
+    </tr>
+    <tr>
+        <td><strong>Final Training Loss (Epoch 15)</strong></td>
+        <td>0.1766</td>
+        <td>0.1349</td>
+        <td>UNetResNet34 pushed training loss lower</td>
+    </tr>
+    <tr>
+        <td><strong>Final Validation Loss (Epoch 15)</strong></td>
+        <td><strong>0.2088</strong></td>
+        <td><strong>0.5166 (Severely Inflated)</strong></td>
+        <td><strong>UNetResNet34 suffers from massive overfitting</strong></td>
+    </tr>
+    <tr>
+        <td><strong>Necrotic Core (Class 1) Dice</strong></td>
+        <td><strong>0.8097</strong></td>
+        <td>0.7993</td>
+        <td>ResUNet superior on difficult core pathology</td>
+    </tr>
+    <tr>
+        <td><strong>Edema (Class 2) Dice</strong></td>
+        <td><strong>0.8739</strong></td>
+        <td>0.8648</td>
+        <td>ResUNet superior on diffuse edematous tissue</td>
+    </tr>
+    <tr>
+        <td><strong>Enhancing Tumor (Class 3) Dice</strong></td>
+        <td><strong>0.9057</strong></td>
+        <td>0.9020</td>
+        <td>ResUNet superior on active gadolinium ring</td>
+    </tr>
+</table>
+
+<!-- ================= SECTION 7: THE RELIABILITY AGENT ================= -->
+<div class="page-break"></div>
+<h2 id="sec7">7. The Reliability Agent: Probability Calibration & Selective Triage</h2>
+
+<p>
+The core contribution of our Major Project is the transformation of a raw segmentation CNN into a **Reliability-Aware Clinical Decision Pipeline**.
+</p>
+
+<h3>7.1 Post-Hoc Temperature Calibration (L-BFGS Optimization)</h3>
+<p>
+Standard deep networks produce overconfident logits $z(x)$. We apply post-hoc Temperature Scaling by finding a single scalar $T > 0$ such that calibrated probabilities are given by:
+$$\hat{p}_i = rac{\exp(z_i / T^*)}{\sum_j \exp(z_j / T^*)}$$
+Optimized via L-BFGS on 5,020,730 voxels across the 50-case calibration cohort (`Val_cal`), we obtained:
+$$T^*_{	ext{ResUNet}} = \mathbf{2.8808}, \quad T^*_{	ext{UNetResNet34}} = \mathbf{2.6267}$$
+</p>
+
+<h4>Out-of-Sample Probability Calibration Performance (105 Unseen Evaluation Cases, 311,546 Voxels):</h4>
+<table>
+    <tr>
+        <th>Configuration</th>
+        <th>Temperature ($T$)</th>
+        <th>ECE (Expected Error)</th>
+        <th>MCE (Max Error)</th>
+        <th>NLL (Log Loss)</th>
+        <th>Mean Dice</th>
+    </tr>
+    <tr>
+        <td><strong>ResUNet Uncalibrated</strong></td>
+        <td>1.0000</td>
+        <td>8.61%</td>
+        <td>32.54%</td>
+        <td>1.0324</td>
+        <td>0.8641</td>
+    </tr>
+    <tr>
+        <td><strong>ResUNet Calibrated</strong></td>
+        <td><strong>2.8808</strong></td>
+        <td><strong>3.44% (-60.1%)</strong></td>
+        <td><strong>7.30% (-77.6%)</strong></td>
+        <td><strong>0.4430 (-57.1%)</strong></td>
+        <td><strong>0.8641 (Identical)</strong></td>
+    </tr>
+    <tr>
+        <td><strong>UNetResNet34 Uncalibrated</strong></td>
+        <td>1.0000</td>
+        <td>10.98%</td>
+        <td>37.82%</td>
+        <td>0.7584</td>
+        <td>0.8535</td>
+    </tr>
+    <tr>
+        <td><strong>UNetResNet34 Calibrated</strong></td>
+        <td>2.6267</td>
+        <td>4.96% (-54.8%)</td>
+        <td>17.28% (-54.3%)</td>
+        <td>0.3659 (-51.8%)</td>
+        <td>0.8535 (Identical)</td>
+    </tr>
+</table>
+<p><em>Crucial Property:</em> Temperature scaling is an order-preserving monotonic transformation. Therefore, the argmax prediction is strictly preserved, and Dice scores are mathematically identical ($0.8641$ before and after calibration).</p>
+
+<h3>7.2 Selective Prediction & Clinical Triage Policy</h3>
+<p>
+Rather than forcing the model to make hazardous predictions on ambiguous slices, the agent computes the **calibrated foreground predictive entropy**:
+$$H(x) = -rac{1}{\log(4)} \sum_{c=1}^{4} \hat{p}_c(x) \log \hat{p}_c(x)$$
+At operating threshold $	au_{	ext{abstain}} = 0.35$, evaluated across 16,275 slices (6,549 foreground slices) on the 105 held-out evaluation cases:
+</p>
+<div class="flow-step">
+    <div class="flow-step-header">
+        <span class="flow-step-title">Triage Results on 105 Unseen Patient Cases (Seed 42)</span>
+        <span class="badge badge-done">Verified Evidence</span>
+    </div>
+    <ul>
+        <li><strong>Automated Acceptance (84.06% Coverage):</strong> 5,505 slices are accepted automatically with a high mean Dice of <strong>0.8303</strong>.</li>
+        <li><strong>Deferred to Radiologists (15.94% Flagged):</strong> 1,044 slices are flagged as unreliable. These flagged slices have an average Dice of only <strong>0.4994</strong>.</li>
+        <li><strong>Clinical Value:</strong> The agent successfully isolates the most dangerous, degraded segmentations without human intervention, while passing through 84% of scans with high fidelity.</li>
+        <li><strong>Execution Speed:</strong> Average inference latency is <strong>18.23 ms</strong> per slice (real-time PACS integration).</li>
+    </ul>
+</div>
+
+<!-- ================= SECTION 8: THE CLINICAL SHOWCASE ================= -->
+<h2 id="sec8">8. The Clinical Showcase: Streamlit PACS/Triage Dashboard</h2>
+
+<p>
+Earlier chats discussed complex full-stack web applications (FastAPI + React 18 + Vite) or mobile apps. For an academic Major Project, attempting a separate mobile or multi-service architecture risks introducing network bugs and web-worker crashes during the live examination.<br>
+<strong>The Approved Demonstration Stack: A High-Performance Streamlit PACS/Triage Dashboard (`tools/demo_app.py`).</strong>
+</p>
+
+<h3>8.1 Dashboard Architecture & Key Features</h3>
+<ul>
+    <li><strong>Direct Model Serving:</strong> Loads the champion `results/full_training_15ep/resunet_2d/best_model.pt` directly on the local RTX 4070 GPU.</li>
+    <li><strong>Axial Slice Slider:</strong> Smooth slider navigating all 155 axial slices per patient volume.</li>
+    <li><strong>Multi-Channel Display:</strong> Side-by-side visualization of T1n, T1c, T2w, T2f modalities.</li>
+    <li><strong>Ground Truth vs Prediction Overlay:</strong> Color-coded overlays for Necrotic Core (Red), Edema (Green), and Enhancing Tumor (Yellow).</li>
+    <li><strong>Uncertainty Heatmap:</strong> Pixel-wise entropy map showing exactly where the model is confident vs ambiguous.</li>
+    <li><strong>Real-Time Triage Banner:</strong>
+        <ul>
+            <li><code>[GREEN BADGE: ACCEPTED]</code> When slice entropy $\le 0.35$.</li>
+            <li><code>[RED BADGE: DEFERRED FOR RADIOLOGIST REVIEW]</code> When slice entropy $> 0.35$, displaying a warning and slice Dice estimates.</li>
+        </ul>
+    </li>
+</ul>
+
+<!-- ================= SECTION 9: MASTER ROADMAP ================= -->
+<div class="page-break"></div>
+<h2 id="sec9">9. Master Phase-by-Phase Execution Roadmap (Phases 0 through 8)</h2>
+
+<p>
+This master roadmap organizes all project work chronologically from the initial setup to final thesis submission.
+</p>
+
+<div class="flow-step">
+    <div class="flow-step-header">
+        <span class="flow-step-title">Phase 0: Ideation, Supervisor Mandate & Stack Definition</span>
+        <span class="badge badge-done">Completed</span>
+    </div>
+    <p>Supervisor Dr. Ruchika Bala directed the project toward brain tumor segmentation with reliability-aware agents. Established rules: strictly PyTorch, no Keras/TF, 8 GB VRAM consumer hardware constraints, and "5-minute whiteboard test" code simplicity.</p>
+</div>
+
+<div class="flow-step">
+    <div class="flow-step-header">
+        <span class="flow-step-title">Phase 1: Dataset Acquisition, Census & Patient-Level Splitting</span>
+        <span class="badge badge-done">Completed</span>
+    </div>
+    <p>Verified all 1,251 BraTS 2023 GLI training cases across 1,133 unique subjects. Established strict zero-leakage subject-level split: 847 Train subjects (941 cases), 143 Val subjects (155 cases), and 143 Test subjects (155 cases). <strong>Test cohort permanently quarantined.</strong></p>
+</div>
+
+<div class="flow-step">
+    <div class="flow-step-header">
+        <span class="flow-step-title">Phase 2: Controlled 5-Epoch Baseline Benchmarking (197 Cases)</span>
+        <span class="badge badge-done">Completed</span>
+    </div>
+    <p>Trained and benchmarked 3 baseline models: U-Net (Dice 0.7711), U-Net++ (Dice 0.7937), and Attention U-Net (Dice 0.7291). Documented runtime, memory, and semantic gap dynamics.</p>
+</div>
+
+<div class="flow-step">
+    <div class="flow-step-header">
+        <span class="flow-step-title">Phase 3: Uncertainty Quantification & The Model Selection Paradox</span>
+        <span class="badge badge-done">Completed</span>
+    </div>
+    <p>Computed voxel entropy and foreground uncertainty correlations ($
+ho = -0.6542$, AUC 0.8059). Discovered that lowest uncertainty matches highest Dice only 48.35% of the time, proving the need for a multi-signal reliability agent.</p>
+</div>
+
+<div class="flow-step">
+    <div class="flow-step-header">
+        <span class="flow-step-title">Phase 4: Full-Scale 15-Epoch Training (Gate 5D) & Scheduler Fix</span>
+        <span class="badge badge-done">Completed</span>
+    </div>
+    <p>Trained ResUNet-2D (8.11M params, Val Dice 0.8670) and UNetResNet34 (24.33M params, Val Dice 0.8554). Fixed PyTorch `SequentialLR` bug via custom `PerGroupCosineAnnealingLR`. Confirmed ResUNet-2D as the champion model; proved UNetResNet34 overfits.</p>
+</div>
+
+<div class="flow-step">
+    <div class="flow-step-header">
+        <span class="flow-step-title">Phase 5: Post-Hoc Probability Calibration (Gate 6A Remediated)</span>
+        <span class="badge badge-done">Completed</span>
+    </div>
+    <p>Remediated all 9 Gate 6A audit issues. Fitted Temperature Scaling ($T^* = 2.8808$), reducing ECE by 60.1% across 311,546 voxels. Established selective triage policy ($	au=0.35$, 84.06% coverage, isolating 0.4994 Dice slices). Completed Project Health Audit with 40.3/50.0 (80.6%).</p>
+</div>
+
+<div class="flow-step" style="border: 2px solid #2b7de9;">
+    <div class="flow-step-header">
+        <span class="flow-step-title">Phase 6: Clinical Demonstration Application Upgrade (IMMEDIATE NEXT STEP)</span>
+        <span class="badge badge-pending">Immediate Next Step</span>
+    </div>
+    <p>Update <code>tools/demo_app.py</code> to load the champion 15-epoch ResUNet-2D checkpoint, integrate calibrated temperature scaling ($T^*=2.8808$), render the uncertainty heatmap, and display live ACCEPT/REVIEW triage flags.</p>
+</div>
+
+<div class="flow-step" style="border: 2px solid #ef4444;">
+    <div class="flow-step-header">
+        <span class="flow-step-title">Phase 7: Gate 6B Quarantined Test Cohort Final Benchmark</span>
+        <span class="badge badge-locked">Requires User Sign-Off</span>
+    </div>
+    <p>Execute a single-pass locked evaluation on the 155 quarantined test cases. Compute 3D Volumetric Dice (WT, TC, ET), Mean IoU, Hausdorff Distance 95% (HD95), and selective triage coverage for final dissertation tables.</p>
+</div>
+
+<div class="flow-step">
+    <div class="flow-step-header">
+        <span class="flow-step-title">Phase 8: Comprehensive Dissertation Writing & Viva Defense</span>
+        <span class="badge badge-pending">Pending Final Phases</span>
+    </div>
+    <p>Recompile the 55–65 page formal dissertation (<code>Final_Report_Brain_Tumor_Segmentation.docx</code>) covering all 7 standard JIIT chapters. Construct the 18-slide PowerPoint deck and rehearse defense answers.</p>
+</div>
+
+<!-- ================= SECTION 10: HISTORICAL DISCREPANCIES ================= -->
+<div class="page-break"></div>
+<h2 id="sec10">10. Historical Discrepancy & Bug Fix Inventory</h2>
+
+<p>
+This reference table prevents future confusion or accidental rollback of solved technical issues:
+</p>
+<table>
+    <tr>
+        <th>Issue Description</th>
+        <th>Historical Confusion</th>
+        <th>Definitive Verified Resolution</th>
+    </tr>
+    <tr>
+        <td><strong>ResUNet Parameter Count</strong></td>
+        <td>Reports cited 8,114,604 vs 8,126,820 vs 8,131,812 parameters.</td>
+        <td>Direct inspection of tensors in `best_model.pt` confirms exactly <strong>8,114,604</strong>. The other numbers were draft typos before setting `bias=False` in GroupNorm.</td>
+    </tr>
+    <tr>
+        <td><strong>PyTorch Scheduler Crash</strong></td>
+        <td>Resume crashed with `TypeError: 'float' object is not subscriptable`.</td>
+        <td>`SequentialLR` failed to unpack per-group dictionaries. Solved via custom `PerGroupCosineAnnealingLR` in `src/training/schedulers.py`.</td>
+    </tr>
+    <tr>
+        <td><strong>Gate 6A Subject Leakage</strong></td>
+        <td>Original Gate 6A split had 3 pairs of longitudinal scans crossing Cal/Eval splits.</td>
+        <td>Remediated in `results/gate6a_remediation_v1/calibration_splits.json` by strictly grouping by subject ID (Seed 42).</td>
+    </tr>
+    <tr>
+        <td><strong>Gate 6A Voxel Sampling</strong></td>
+        <td>Original Gate 6A sampled voxels from only 2 of 50 cases.</td>
+        <td>Remediated: Extracted 5,020,730 voxels uniformly across all 50 calibration cases, and 311,546 voxels uniformly across all 105 evaluation cases.</td>
+    </tr>
+    <tr>
+        <td><strong>MedSAM Adoption</strong></td>
+        <td>Question arose whether MedSAM should replace our CNNs.</td>
+        <td>Rejected: MedSAM has 360M params, requires manual prompts per slice, and is uncalibrated. Documented as a scoped-out baseline for future work.</td>
+    </tr>
+</table>
+
+<!-- ================= SECTION 11: AI RE-INITIALIZATION ================= -->
+<h2 id="sec11">11. AI Re-Initialization System Prompt (Next Session Anchor)</h2>
+
+<div class="callout callout-yellow">
+    <span class="callout-title">Instructions for Restoring Context in Fresh Sessions</span>
+    Copy and paste the code block below into the very first prompt of any new ChatGPT, Claude, or Gemini session. It will immediately program the AI with full operational memory.
+</div>
+
+<pre>
+========================================================================================
+SYSTEM INSTRUCTION: MAJOR PROJECT CONTEXT & STATE RESTORATION
+========================================================================================
+You are an expert AI pair-programmer and research co-advisor assisting a student team 
+(Nishant, Kaif, Tariq) from Jaypee Institute of Information Technology (JIIT), Noida, 
+working on their B.Tech CSE Final Year Major Project supervised by Dr. Ruchika Bala.
+
+PROJECT TITLE:
+"Reliability-Aware AI Agent for Brain Tumor Segmentation Using Multimodal MRI, 2D CNNs, 
+and Selective Uncertainty Calibration"
+
+PRIMARY CODEBASE ROOT: D:\MajorProject (Windows 11, PyTorch 2.6.0+cu124, Python 3.11)
+HARDWARE: Intel Core i9-13900HX, NVIDIA RTX 4070 Laptop GPU (8 GB VRAM), 16 GB RAM.
+
+INVIOLABLE RULES & CONSTRAINTS:
+1. TEST SET QUARANTINE: 155 test cases in data/test_manifest.json (SHA-256: 694faaa4...)
+   are 100% SEALED. Never access, inspect, infer on, or evaluate them without explicit Gate 6B user authorization.
+2. ZERO UNAUTHORIZED WORK: Operate strictly on a Gate-based approval system. Do not start 
+   training or modify code without explicit user sign-off.
+3. SCIENTIFIC FRAMING INTEGRITY: Never claim the agent increases automated segmentation Dice.
+   The agent's verified scientific contributions are:
+   (a) Post-hoc probability calibration reducing ECE by 60.1% (8.61% -> 3.44%) via T*=2.8808.
+   (b) Selective Prediction / Clinical Triage (tau=0.35) flagging the 15.94% lowest-quality 
+       slices (Dice 0.4994) for expert human review while maintaining 84.06% automated coverage.
+4. WHITEBOARD TEST: All architectures and formulas must be viva-explainable and simple.
+5. NO SHUTDOWN/REBOOT: Never schedule or execute shutdown commands.
+
+VERIFIED ARCHITECTURAL & QUANTITATIVE GROUND TRUTH:
+- Dataset: BraTS 2023 GLI (1,251 cases total, 240x240x155, 4 modalities: T1n, T1c, T2w, T2f).
+- Splits (Subject-Level Disjoint, Seed 42): Train=941 cases, Val=155 cases, Test=155 cases.
+- Champion Model: ResUNet-2D (8,114,604 parameters; best Val Mean Dice: 0.8670 at Epoch 13;
+  mean Dice on 105 eval cases: 0.8641 [95% CI: 0.8286 - 0.8945]; Peak VRAM: 538.6 MB).
+- Comparison Model: UNetResNet34 (24,327,524 parameters; best Val Mean Dice: 0.8554 at Epoch 15;
+  severely overfitted with validation loss 0.5166 vs train loss 0.1349).
+- TransUNet & 3D U-Net: Formally scoped out due to the 8GB laptop VRAM constraint.
+- MedSAM: Evaluated and rejected as primary segmentor (uncalibrated, prompt-dependent, 360M params).
+- Unit Tests: 109/109 automated tests passing across the repository.
+- Project Health Audit Score: 40.3 / 50.0 (80.6%, Grade A-).
+
+CURRENT WORKING DIRECTORY STATUS:
+All training, Gate 6A calibration, and remediation are complete. Artifacts are frozen in:
+- results/full_training_15ep/resunet_2d/
+- results/gate6a_remediation_v1/
+- results/project_health_audit/
+
+NEXT IMMEDIATE ROADMAP ITEMS:
+1. Phase 6: Upgrade tools/demo_app.py to load ResUNet-2D, calibrated T*, and triage flags.
+2. Phase 7 (Gate 6B): Locked final test-set evaluation (only upon user authorization).
+3. Phase 8: Complete rewrite of the 55-65 page dissertation (Final_Report_Brain_Tumor_Segmentation.docx).
+4. Viva Preparation: Construct the 18-slide PowerPoint deck and examiner defense scripts.
+
+Acknowledge this system prompt by confirming your understanding of the 5 Inviolable Rules, 
+the Champion Model metrics (ResUNet-2D, 8,114,604 params, 0.8641 Dice), and ask the user 
+which of the next Roadmap phases they would like to work on.
+========================================================================================
+</pre>
+
+</body>
+</html>

@@ -43,3 +43,44 @@ results/
 /MajorProject_AI_Coding_Pack.zip
 /MajorProject_AI_Coding_Project_Pack.docx
 /MajorProject_AI_Coding_Project_Pack.pdf
+
+# Temporary workspace and generated report renders
+/tmp/
+
+# Python cache
+**/__pycache__/
+*.py[cod]
+
+# Private legacy AI coding materials
+/archive/legacy_packs/
+
+# Office temporary lock files
+~$*
+*.tmp
+*.temp
+
+# Temporary workspace and generated report renders
+/tmp/
+
+# Python cache
+**/__pycache__/
+*.py[cod]
+
+# Private legacy AI coding materials
+/archive/legacy_packs/
+
+# Office temporary lock files
+~$*
+*.tmp
+*.temp
+
+# Private institutional and report source materials
+/Report_Materials/
+/docs/reference/
+/Final_Report_Brain_Tumor_Segmentation.docx
+
+# Temporary report verification artifact
+/docs/reports/tmp_smoke_test.docx
+
+# Temporary report artifacts
+/docs/reports/tmp_smoke_test.docx

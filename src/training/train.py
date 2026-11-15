@@ -7,9 +7,9 @@ import math
 import random
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 import numpy as np
 import torch
@@ -29,9 +29,11 @@ from src.data.dataset import (  # noqa: E402
     create_train_val_datasets,
 )
 from src.evaluation.metrics import SegmentationMetricAccumulator  # noqa: E402
-from src.models.unet import UNet2D, count_parameters  # noqa: E402
-from src.models.unetpp import UNetPlusPlus2D  # noqa: E402
 from src.models.attention_unet import AttentionUNet2D  # noqa: E402
+from src.models.resunet import ResUNet2D  # noqa: E402
+from src.models.unet import UNet2D, count_parameters  # noqa: E402
+from src.models.unet_resnet34 import UNetResNet34  # noqa: E402
+from src.models.unetpp import UNetPlusPlus2D  # noqa: E402
 
 
 try:
@@ -42,7 +44,9 @@ except ImportError:  # pragma: no cover - fallback only used if tqdm is absent.
 
 DEFAULT_RESULTS_DIR = PROJECT_ROOT / "results" / "baseline_unet2d"
 DEFAULT_UNETPP_RESULTS_DIR = PROJECT_ROOT / "results" / "unetpp2d_5ep"
-MODEL_CHOICES = ("unet", "unetpp", "attention_unet")
+DEFAULT_RESUNET_RESULTS_DIR = PROJECT_ROOT / "results" / "resunet2d_5ep"
+DEFAULT_UNET_RESNET34_RESULTS_DIR = PROJECT_ROOT / "results" / "unet_resnet34_5ep"
+MODEL_CHOICES = ("unet", "unetpp", "attention_unet", "resunet", "unet_resnet34")
 
 
 @dataclass(frozen=True)
@@ -64,6 +68,10 @@ class TrainingConfig:
     case_wise_batches: bool = True
     base_channels: int = 32
     num_classes: int = 4
+    exclude_val_subject_companions: bool = False
+    pretrained: bool = True
+    warmup_epochs: int = 0
+    max_grad_norm: float | None = None
 
 
 class DiceCrossEntropyLoss(nn.Module):
@@ -113,6 +121,7 @@ class DiceCrossEntropyLoss(nn.Module):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train a 2D segmentation model for BraTS-GLI.")
+    parser.add_argument("--config", type=Path, default=None, help="Path to JSON configuration file.")
     parser.add_argument("--model", choices=MODEL_CHOICES, default="unet")
     parser.add_argument("--raw-dir", type=Path, default=DEFAULT_RAW_DATA_DIR)
     parser.add_argument("--results-dir", type=Path, default=None)
@@ -133,12 +142,84 @@ def parse_args() -> argparse.Namespace:
     case_batch_group.add_argument("--case-wise-batches", dest="case_wise_batches", action="store_true", default=True)
     case_batch_group.add_argument("--no-case-wise-batches", dest="case_wise_batches", action="store_false")
     parser.add_argument("--base-channels", type=int, default=32)
+    parser.add_argument(
+        "--exclude-val-subject-companions",
+        action="store_true",
+        default=False,
+        help="Exclude companion scans of validation subjects from training set to prevent patient leakage.",
+    )
+    pretrained_group = parser.add_mutually_exclusive_group()
+    pretrained_group.add_argument("--pretrained", dest="pretrained", action="store_true", default=True)
+    pretrained_group.add_argument("--no-pretrained", dest="pretrained", action="store_false")
+    parser.add_argument("--warmup-epochs", type=int, default=0, help="Linear LR warmup epochs (default: 0).")
+    parser.add_argument("--max-grad-norm", type=float, default=None, help="Max gradient norm for clipping (default: None).")
     parser.add_argument("--summary-only", action="store_true")
     parser.add_argument("--history-path", type=Path, default=None)
     parser.add_argument("--forward-test-only", action="store_true")
     parser.add_argument("--benchmark-data", action="store_true")
     parser.add_argument("--benchmark-batches", type=int, default=64)
     return parser.parse_args()
+
+
+def resolve_training_config(args: argparse.Namespace) -> TrainingConfig:
+    cfg: dict[str, Any] = {}
+    if args.config is not None:
+        with args.config.open("r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        if "raw_dir" in cfg and cfg["raw_dir"] is not None:
+            cfg["raw_dir"] = Path(cfg["raw_dir"])
+        if "results_dir" in cfg and cfg["results_dir"] is not None:
+            cfg["results_dir"] = Path(cfg["results_dir"])
+
+    cli_flags = {arg.split("=")[0] for arg in sys.argv[1:] if arg.startswith("--")}
+
+    if "--model" in cli_flags or "model_name" not in cfg:
+        cfg["model_name"] = args.model
+    if "--raw-dir" in cli_flags or "raw_dir" not in cfg:
+        cfg["raw_dir"] = args.raw_dir
+    if "--results-dir" in cli_flags or "results_dir" not in cfg:
+        cfg["results_dir"] = resolve_results_dir(cfg.get("model_name", args.model), args.results_dir)
+    elif "results_dir" in cfg and isinstance(cfg["results_dir"], str):
+        cfg["results_dir"] = Path(cfg["results_dir"])
+
+    if "--epochs" in cli_flags or "epochs" not in cfg:
+        cfg["epochs"] = args.epochs
+    if "--batch-size" in cli_flags or "batch_size" not in cfg:
+        cfg["batch_size"] = args.batch_size
+    if "--learning-rate" in cli_flags or "learning_rate" not in cfg:
+        cfg["learning_rate"] = args.learning_rate
+    if "--dice-weight" in cli_flags or "dice_weight" not in cfg:
+        cfg["dice_weight"] = args.dice_weight
+    if "--ce-weight" in cli_flags or "ce_weight" not in cfg:
+        cfg["ce_weight"] = args.ce_weight
+    if "--val-fraction" in cli_flags or "val_fraction" not in cfg:
+        cfg["val_fraction"] = args.val_fraction
+    if "--background-slice-ratio" in cli_flags or "background_slice_ratio" not in cfg:
+        cfg["background_slice_ratio"] = args.background_slice_ratio
+    if "--seed" in cli_flags or "seed" not in cfg:
+        cfg["seed"] = args.seed
+    if "--num-workers" in cli_flags or "num_workers" not in cfg:
+        cfg["num_workers"] = args.num_workers
+    if "--pin-memory" in cli_flags or "--no-pin-memory" in cli_flags or "pin_memory" not in cfg:
+        cfg["pin_memory"] = args.pin_memory
+    if "--case-cache-size" in cli_flags or "case_cache_size" not in cfg:
+        cfg["case_cache_size"] = args.case_cache_size
+    if "--case-wise-batches" in cli_flags or "--no-case-wise-batches" in cli_flags or "case_wise_batches" not in cfg:
+        cfg["case_wise_batches"] = args.case_wise_batches
+    if "--base-channels" in cli_flags or "base_channels" not in cfg:
+        cfg["base_channels"] = args.base_channels
+    if "--exclude-val-subject-companions" in cli_flags or "exclude_val_subject_companions" not in cfg:
+        cfg["exclude_val_subject_companions"] = args.exclude_val_subject_companions
+    if "--pretrained" in cli_flags or "--no-pretrained" in cli_flags or "pretrained" not in cfg:
+        cfg["pretrained"] = args.pretrained
+    if "--warmup-epochs" in cli_flags or "warmup_epochs" not in cfg:
+        cfg["warmup_epochs"] = args.warmup_epochs
+    if "--max-grad-norm" in cli_flags or "max_grad_norm" not in cfg:
+        cfg["max_grad_norm"] = args.max_grad_norm
+
+    valid_fields = {f.name for f in fields(TrainingConfig)}
+    filtered_cfg = {k: v for k, v in cfg.items() if k in valid_fields}
+    return TrainingConfig(**filtered_cfg)
 
 
 def main() -> None:
@@ -150,24 +231,7 @@ def main() -> None:
         run_forward_pass_test(model_name=args.model, base_channels=args.base_channels)
         return
 
-    config = TrainingConfig(
-        model_name=args.model,
-        raw_dir=args.raw_dir,
-        results_dir=resolve_results_dir(args.model, args.results_dir),
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        dice_weight=args.dice_weight,
-        ce_weight=args.ce_weight,
-        val_fraction=args.val_fraction,
-        background_slice_ratio=args.background_slice_ratio,
-        seed=args.seed,
-        num_workers=args.num_workers,
-        pin_memory=args.pin_memory,
-        case_cache_size=args.case_cache_size,
-        case_wise_batches=args.case_wise_batches,
-        base_channels=args.base_channels,
-    )
+    config = resolve_training_config(args)
     if args.benchmark_data:
         benchmark_data_loading(config, num_batches=args.benchmark_batches)
         return
@@ -185,6 +249,7 @@ def train(config: TrainingConfig) -> list[dict[str, float]]:
         background_slice_ratio=config.background_slice_ratio,
         seed=config.seed,
         case_cache_size=config.case_cache_size,
+        exclude_val_subject_companions=config.exclude_val_subject_companions,
     )
 
     train_loader = build_data_loader(
@@ -215,7 +280,10 @@ def train(config: TrainingConfig) -> list[dict[str, float]]:
         dice_weight=config.dice_weight,
         ce_weight=config.ce_weight,
     )
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
+    if hasattr(model, "get_parameter_groups"):
+        optimizer = torch.optim.AdamW(model.get_parameter_groups(base_lr=config.learning_rate))
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
 
     config.results_dir.mkdir(parents=True, exist_ok=True)
     save_json(
@@ -240,17 +308,41 @@ def train(config: TrainingConfig) -> list[dict[str, float]]:
     final_checkpoint_path = config.results_dir / "final_model.pt"
     start_time = time.perf_counter()
 
+    scheduler = None
+    if config.warmup_epochs > 0:
+        scheduler = torch.optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=0.1,
+            total_iters=config.warmup_epochs,
+        )
+
     try:
         for epoch in range(1, config.epochs + 1):
-            train_loss = run_train_epoch(model, train_loader, criterion, optimizer, device, epoch, config.epochs)
+            train_loss, pre_norm, post_norm, clipped_count = run_train_epoch(
+                model=model,
+                data_loader=train_loader,
+                criterion=criterion,
+                optimizer=optimizer,
+                device=device,
+                epoch=epoch,
+                total_epochs=config.epochs,
+                max_grad_norm=config.max_grad_norm,
+            )
             val_loss, metrics = run_validation_epoch(model, val_loader, criterion, device, epoch, config.epochs)
+            if scheduler is not None:
+                scheduler.step()
 
+            current_lr = optimizer.param_groups[0]["lr"]
             row = {
                 "epoch": float(epoch),
                 "training_loss": train_loss,
                 "validation_loss": val_loss,
                 "mean_dice": metrics.mean_dice,
                 "mean_iou": metrics.mean_iou,
+                "grad_norm_pre": pre_norm,
+                "grad_norm_post": post_norm,
+                "clipped_batches": float(clipped_count),
+                "learning_rate": current_lr,
             }
             for class_id, value in enumerate(metrics.per_class_dice):
                 row[f"dice_class_{class_id}"] = value
@@ -259,12 +351,13 @@ def train(config: TrainingConfig) -> list[dict[str, float]]:
             history.append(row)
 
             elapsed_minutes = (time.perf_counter() - start_time) / 60.0
+            clip_info = f" | grad_norm={pre_norm:.2f}" + (f" (clipped {clipped_count})" if clipped_count > 0 else "")
             print(
                 f"Epoch {epoch}/{config.epochs} | "
                 f"train_loss={train_loss:.4f} | "
                 f"val_loss={val_loss:.4f} | "
                 f"mean_dice={metrics.mean_dice:.4f} | "
-                f"mean_iou={metrics.mean_iou:.4f} | "
+                f"mean_iou={metrics.mean_iou:.4f}{clip_info} | "
                 f"elapsed={elapsed_minutes:.1f} min"
             )
 
@@ -323,26 +416,64 @@ def run_train_epoch(
     device: torch.device,
     epoch: int,
     total_epochs: int,
-) -> float:
+    max_grad_norm: float | None = None,
+) -> tuple[float, float, float, int]:
     model.train()
     total_loss = 0.0
     total_samples = 0
+    total_pre_norm = 0.0
+    total_post_norm = 0.0
+    clipped_count = 0
+    num_batches = 0
 
-    for image, mask in progress(data_loader, description=f"train {epoch}/{total_epochs}"):
+    for batch_idx, (image, mask) in enumerate(progress(data_loader, description=f"train {epoch}/{total_epochs}")):
         image = image.to(device=device, non_blocking=True)
         mask = mask.to(device=device, non_blocking=True)
 
         optimizer.zero_grad(set_to_none=True)
         logits = model(image)
         loss = criterion(logits, mask)
+
+        if not torch.isfinite(loss):
+            raise FloatingPointError(
+                f"Non-finite loss encountered at epoch {epoch}, batch {batch_idx}: loss={loss.item()}"
+            )
+
         loss.backward()
+
+        if max_grad_norm is not None and max_grad_norm > 0:
+            pre_norm = torch.nn.utils.clip_grad_norm_(
+                model.parameters(), max_norm=max_grad_norm, error_if_nonfinite=False
+            )
+            post_norm = torch.nn.utils.clip_grad_norm_(
+                model.parameters(), max_norm=float("inf")
+            )
+            if pre_norm.item() > max_grad_norm:
+                clipped_count += 1
+        else:
+            pre_norm = torch.nn.utils.clip_grad_norm_(
+                model.parameters(), max_norm=float("inf")
+            )
+            post_norm = pre_norm
+
+        if not torch.isfinite(pre_norm):
+            raise FloatingPointError(
+                f"Non-finite gradient norm encountered at epoch {epoch}, batch {batch_idx}: norm={pre_norm.item()}"
+            )
+
         optimizer.step()
 
         batch_size = image.shape[0]
         total_loss += float(loss.item()) * batch_size
         total_samples += batch_size
+        total_pre_norm += float(pre_norm.item())
+        total_post_norm += float(post_norm.item())
+        num_batches += 1
 
-    return total_loss / max(total_samples, 1)
+    avg_loss = total_loss / max(total_samples, 1)
+    avg_pre_norm = total_pre_norm / max(num_batches, 1)
+    avg_post_norm = total_post_norm / max(num_batches, 1)
+    return avg_loss, avg_pre_norm, avg_post_norm, clipped_count
 
 
 @torch.no_grad()
@@ -630,6 +761,10 @@ def validate_config(config: TrainingConfig) -> None:
         raise ValueError("loss weights must be non-negative.")
     if config.dice_weight == 0 and config.ce_weight == 0:
         raise ValueError("at least one loss weight must be positive.")
+    if config.warmup_epochs < 0:
+        raise ValueError("warmup_epochs must be non-negative.")
+    if config.max_grad_norm is not None and config.max_grad_norm <= 0:
+        raise ValueError("max_grad_norm must be positive when set.")
 
 
 def set_reproducible_seed(seed: int) -> None:
@@ -694,6 +829,21 @@ def create_model(config: TrainingConfig) -> nn.Module:
             base_channels=config.base_channels,
         )
 
+    if config.model_name == "resunet":
+        return ResUNet2D(
+            in_channels=4,
+            num_classes=config.num_classes,
+            base_channels=config.base_channels,
+        )
+
+    if config.model_name == "unet_resnet34":
+        return UNetResNet34(
+            in_channels=4,
+            num_classes=config.num_classes,
+            base_channels=config.base_channels,
+            pretrained=config.pretrained,
+        )
+
     raise ValueError(f"Unsupported model: {config.model_name}")
 
 
@@ -702,6 +852,10 @@ def resolve_results_dir(model_name: str, requested_results_dir: Path | None) -> 
         return requested_results_dir
     if model_name == "unetpp":
         return DEFAULT_UNETPP_RESULTS_DIR
+    if model_name == "resunet":
+        return DEFAULT_RESUNET_RESULTS_DIR
+    if model_name == "unet_resnet34":
+        return DEFAULT_UNET_RESNET34_RESULTS_DIR
     return DEFAULT_RESULTS_DIR
 
 
