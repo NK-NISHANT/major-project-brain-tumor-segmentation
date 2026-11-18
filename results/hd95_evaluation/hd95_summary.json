@@ -1,0 +1,187 @@
+{
+  "metadata": {
+    "evaluation_cohort": "Val_eval_remediation",
+    "cases_evaluated": 105,
+    "unique_subjects": 96,
+    "total_elapsed_seconds": 456.0400631427765,
+    "device": "cuda",
+    "spacing": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "max_penalty_mm": 373.12
+  },
+  "resunet_2d": {
+    "wt": {
+      "dice": {
+        "mean": 0.9038617800811775,
+        "ci_95_lower": 0.8765212250807974,
+        "ci_95_upper": 0.924065385490591
+      },
+      "bounded_hd95_mm": {
+        "mean": 15.292754147166297,
+        "ci_95_lower": 11.380089680463367,
+        "ci_95_upper": 20.050609689039728,
+        "median": 4.123105525970459,
+        "std": 22.282202138687627
+      },
+      "raw_valid_hd95_mm": {
+        "count": 105,
+        "mean": 15.292754147166297,
+        "median": 4.123105525970459,
+        "std": 22.282202138687627,
+        "min": 1.0,
+        "max": 90.57234191894531
+      },
+      "status_distribution": {
+        "valid": 105,
+        "both_empty": 0,
+        "complete_miss": 0,
+        "false_alarm": 0
+      }
+    },
+    "tc": {
+      "dice": {
+        "mean": 0.8597123070102424,
+        "ci_95_lower": 0.8076215159419524,
+        "ci_95_upper": 0.8985919127088681
+      },
+      "bounded_hd95_mm": {
+        "mean": 8.979287337121509,
+        "ci_95_lower": 6.078225139013901,
+        "ci_95_upper": 12.739516471119352,
+        "median": 3.1622776985168457,
+        "std": 16.261822266577333
+      },
+      "raw_valid_hd95_mm": {
+        "count": 104,
+        "mean": 9.065626638439985,
+        "median": 3.1622776985168457,
+        "std": 16.31637182751581,
+        "min": 1.0,
+        "max": 81.82295227050781
+      },
+      "status_distribution": {
+        "valid": 104,
+        "both_empty": 1,
+        "complete_miss": 0,
+        "false_alarm": 0
+      }
+    },
+    "et": {
+      "dice": {
+        "mean": 0.8286156382471623,
+        "ci_95_lower": 0.7794045224185813,
+        "ci_95_upper": 0.8684241368845673
+      },
+      "bounded_hd95_mm": {
+        "mean": 9.924215875307718,
+        "ci_95_lower": 4.7133833794354345,
+        "ci_95_upper": 18.663426659020065,
+        "median": 2.0,
+        "std": 38.157631998944325
+      },
+      "raw_valid_hd95_mm": {
+        "count": 103,
+        "mean": 6.4943948243428204,
+        "median": 2.0,
+        "std": 13.35898814985571,
+        "min": 1.0,
+        "max": 83.2430191040039
+      },
+      "status_distribution": {
+        "valid": 103,
+        "both_empty": 1,
+        "complete_miss": 0,
+        "false_alarm": 1
+      }
+    }
+  },
+  "unet_resnet34": {
+    "wt": {
+      "dice": {
+        "mean": 0.8843037678830351,
+        "ci_95_lower": 0.8477292434601724,
+        "ci_95_upper": 0.9105605562817582
+      },
+      "bounded_hd95_mm": {
+        "mean": 13.136285969189235,
+        "ci_95_lower": 9.921244048157682,
+        "ci_95_upper": 17.051592105977445,
+        "median": 5.0,
+        "std": 18.69526851634209
+      },
+      "raw_valid_hd95_mm": {
+        "count": 105,
+        "mean": 13.136285969189235,
+        "median": 5.0,
+        "std": 18.69526851634209,
+        "min": 1.0,
+        "max": 90.00555419921875
+      },
+      "status_distribution": {
+        "valid": 105,
+        "both_empty": 0,
+        "complete_miss": 0,
+        "false_alarm": 0
+      }
+    },
+    "tc": {
+      "dice": {
+        "mean": 0.8423093924874496,
+        "ci_95_lower": 0.7839242927828363,
+        "ci_95_upper": 0.88690718346816
+      },
+      "bounded_hd95_mm": {
+        "mean": 12.962142971492948,
+        "ci_95_lower": 5.1438381609929875,
+        "ci_95_upper": 24.989950983732644,
+        "median": 2.8284270763397217,
+        "std": 51.57636459988977
+      },
+      "raw_valid_hd95_mm": {
+        "count": 102,
+        "mean": 6.027304039281957,
+        "median": 2.63895845413208,
+        "std": 10.968839700855964,
+        "min": 1.0,
+        "max": 87.75990295410156
+      },
+      "status_distribution": {
+        "valid": 102,
+        "both_empty": 1,
+        "complete_miss": 2,
+        "false_alarm": 0
+      }
+    },
+    "et": {
+      "dice": {
+        "mean": 0.833881456436471,
+        "ci_95_lower": 0.7858148328888742,
+        "ci_95_upper": 0.873990050092537
+      },
+      "bounded_hd95_mm": {
+        "mean": 8.625153911635989,
+        "ci_95_lower": 3.5480065149520588,
+        "ci_95_upper": 17.339297364052246,
+        "median": 1.7320507764816284,
+        "std": 37.541941713868496
+      },
+      "raw_valid_hd95_mm": {
+        "count": 102,
+        "mean": 5.220795693350773,
+        "median": 1.7320507764816284,
+        "std": 11.075753615270312,
+        "min": 1.0,
+        "max": 84.16887664794922
+      },
+      "status_distribution": {
+        "valid": 102,
+        "both_empty": 2,
+        "complete_miss": 1,
+        "false_alarm": 0
+      }
+    }
+  }
+}

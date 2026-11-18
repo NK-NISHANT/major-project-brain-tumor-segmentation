@@ -1,0 +1,50 @@
+{
+  "work_package": "Stage C Phase 2 (C2): Five-Model Probability Calibration & Uncertainty Analysis",
+  "timestamp_start": "2026-11-15 15:44:37",
+  "timestamp_end": "2026-11-15 16:39:56",
+  "total_elapsed_seconds": 3318.3281241000004,
+  "environment": {
+    "os": "Windows-10-10.0.26300-SP0",
+    "python_version": "3.11.9",
+    "torch_version": "2.11.0+cu128",
+    "cuda_available": true,
+    "gpu_device": "NVIDIA GeForce RTX 4070 Laptop GPU",
+    "cudnn_benchmark": false
+  },
+  "provenance_hashes": {
+    "splits_json_sha256": "e753caa256950dee0ed921ee4e8a08f6f515dcb062862c1fb7a699e08f69059d",
+    "script_sha256": "6f81222a105a76edd3b4f98cfabde25f769ff5f7f03a091b0e170d1f20849c9c",
+    "checkpoints": {
+      "resunet_2d": "81ef568df7dc47e3b883d4c676abc54213261e35aef079c372ac5225eeb19a8d",
+      "unet_resnet34": "891d869a2369c395dbcb9b2b1adf3fec36d42f5e9b16508f7a964198a9332d1d",
+      "unet": "37d35bf578868356caadc7f4a173af7b82535bb427fdb6cce8df121a9bf06cef",
+      "unetpp": "fbd237a42bdf12f9c945a1c8caa953dfb44a1672d3514cc842368fa535f4bfe6",
+      "attention_unet": "5f7d8dae1fb68e86905d2c36f56446de8c0a09babe0ce550230b157aa11e591e"
+    },
+    "output_calibration_parameters_sha256": "77819fe816255d75446f9497e4b361d5364cb674ff55904dbb52240e3a76f67e",
+    "output_calibration_metrics_csv_sha256": "369fa90f6f5fe37da21e742fb5ee6ed41ec956e25759f853ebd566f1cc8eeaa2",
+    "output_evaluation_metrics_csv_sha256": "7418b09f68fdd46c29e641d4d3b34094bc7f6d08ce7c5b49e4a8caa983fc87fe",
+    "output_entropy_summary_csv_sha256": "7456e78782fe5cac8b59b42e1aab65c5514e23208c6b9e40f755b409a975024f"
+  },
+  "cohorts": {
+    "val_cal": {
+      "cases": 50,
+      "subjects": 47,
+      "voxels": 5020730
+    },
+    "val_eval": {
+      "cases": 105,
+      "subjects": 96,
+      "voxels": 311546
+    },
+    "subject_disjointness_verified": true
+  },
+  "fitted_temperatures": {
+    "resunet_2d": 2.8804590702056885,
+    "unet_resnet34": 2.6260907649993896,
+    "unet": 2.626793384552002,
+    "unetpp": 2.5647027492523193,
+    "attention_unet": 2.2868876457214355
+  },
+  "argmax_invariance_all_zero": true
+}

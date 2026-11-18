@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 from typing import Any
 
 import torch
@@ -13,6 +15,15 @@ class AgentAction(str, Enum):
     ACCEPT = "ACCEPT"
     FALLBACK_SWITCH = "FALLBACK_SWITCH"
     FLAG_UNRELIABLE = "FLAG_UNRELIABLE"
+
+
+# Authoritative Stage C Constants
+STAGE_C_PRIMARY_MODEL: str = "resunet"
+STAGE_C_SECONDARY_MODEL: str = "unet_resnet34"
+STAGE_C_TAU: float = 0.35
+STAGE_C_AXIAL_CONTEXT_RADIUS: int = 2
+STAGE_C_MIN_NEIGHBOR_FOREGROUND_SLICES: int = 1
+STAGE_C_ALLOWED_MODELS: tuple[str, ...] = ("resunet", "unet_resnet34")
 
 
 @dataclass(frozen=True)
@@ -99,6 +110,13 @@ class PolicyConfig:
             raise ValueError(
                 f"min_neighbor_foreground_slices must be >= 1, got {self.min_neighbor_foreground_slices}"
             )
+        if not isinstance(self.fallback_priority, tuple):
+            object.__setattr__(self, "fallback_priority", tuple(self.fallback_priority))
+        object.__setattr__(
+            self,
+            "candidate_temperatures",
+            MappingProxyType(dict(self.candidate_temperatures)),
+        )
 
 
 @dataclass(frozen=True)

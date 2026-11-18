@@ -99,13 +99,13 @@ class TestFullVolumeGeometryAndPhysicalBoundaries(unittest.TestCase):
         self.assertEqual(slices_to_eval[-1], 154)
         self.assertEqual(slices_to_eval, sorted(slices_to_eval))
 
-    def test_physical_boundary_slice_zero_no_false_unavailable(self) -> None:
-        """At z=0, backward neighbors (z < 0) are physical volume boundaries and MUST NOT count as unavailable."""
+    def test_physical_boundary_slice_zero_out_of_volume_accounting(self) -> None:
+        """At z=0, backward neighbors (z < 0) are physical volume boundaries and count as unavailable per Stage C3 v1.1.3."""
         total_slices = 155
         # Provide predictions for z in [0, 5]
         preds = {z: _make_prediction("unetpp", dominant_class=0) for z in range(6)}
 
-        # Option A: k=2
+        # Option A: k=2 (slots -2, -1 out-of-volume -> 2 unavailable; slots 1, 2 evaluated -> 2 evaluated)
         ctx_k2 = _get_agent_context(
             slice_index=0,
             case_primary_predictions=preds,
@@ -114,12 +114,13 @@ class TestFullVolumeGeometryAndPhysicalBoundaries(unittest.TestCase):
         )
         self.assertIsNotNone(ctx_k2)
         assert ctx_k2 is not None
-        self.assertEqual(ctx_k2.unavailable_neighbors_count, 0)
+        self.assertEqual(ctx_k2.unavailable_neighbors_count, 2)
         self.assertEqual(ctx_k2.evaluated_neighbors_count, 2)  # slices 1 and 2
         self.assertEqual(ctx_k2.empty_neighbors_count, 2)
         self.assertEqual(ctx_k2.foreground_neighbors_count, 0)
+        self.assertEqual(ctx_k2.evaluated_neighbors_count + ctx_k2.unavailable_neighbors_count, 4)
 
-        # Option B: k=3
+        # Option B: k=3 (slots -3, -2, -1 out-of-volume -> 3 unavailable; slots 1, 2, 3 evaluated -> 3 evaluated)
         ctx_k3 = _get_agent_context(
             slice_index=0,
             case_primary_predictions=preds,
@@ -128,18 +129,19 @@ class TestFullVolumeGeometryAndPhysicalBoundaries(unittest.TestCase):
         )
         self.assertIsNotNone(ctx_k3)
         assert ctx_k3 is not None
-        self.assertEqual(ctx_k3.unavailable_neighbors_count, 0)
+        self.assertEqual(ctx_k3.unavailable_neighbors_count, 3)
         self.assertEqual(ctx_k3.evaluated_neighbors_count, 3)  # slices 1, 2, 3
         self.assertEqual(ctx_k3.empty_neighbors_count, 3)
         self.assertEqual(ctx_k3.foreground_neighbors_count, 0)
+        self.assertEqual(ctx_k3.evaluated_neighbors_count + ctx_k3.unavailable_neighbors_count, 6)
 
-    def test_physical_boundary_slice_154_no_false_unavailable(self) -> None:
-        """At z=154 (last slice), forward neighbors (z >= 155) MUST NOT count as unavailable."""
+    def test_physical_boundary_slice_154_out_of_volume_accounting(self) -> None:
+        """At z=154 (last slice), forward neighbors (z >= 155) count as unavailable per Stage C3 v1.1.3."""
         total_slices = 155
         # Provide predictions for z in [150, 154]
         preds = {z: _make_prediction("unetpp", dominant_class=0) for z in range(150, 155)}
 
-        # Option A: k=2
+        # Option A: k=2 (slots 155, 156 out-of-volume -> 2 unavailable; slots 152, 153 evaluated -> 2 evaluated)
         ctx_k2 = _get_agent_context(
             slice_index=154,
             case_primary_predictions=preds,
@@ -148,12 +150,13 @@ class TestFullVolumeGeometryAndPhysicalBoundaries(unittest.TestCase):
         )
         self.assertIsNotNone(ctx_k2)
         assert ctx_k2 is not None
-        self.assertEqual(ctx_k2.unavailable_neighbors_count, 0)
+        self.assertEqual(ctx_k2.unavailable_neighbors_count, 2)
         self.assertEqual(ctx_k2.evaluated_neighbors_count, 2)  # slices 152 and 153
         self.assertEqual(ctx_k2.empty_neighbors_count, 2)
         self.assertEqual(ctx_k2.foreground_neighbors_count, 0)
+        self.assertEqual(ctx_k2.evaluated_neighbors_count + ctx_k2.unavailable_neighbors_count, 4)
 
-        # Option B: k=3
+        # Option B: k=3 (slots 155, 156, 157 out-of-volume -> 3 unavailable; slots 151, 152, 153 evaluated -> 3 evaluated)
         ctx_k3 = _get_agent_context(
             slice_index=154,
             case_primary_predictions=preds,
@@ -162,10 +165,11 @@ class TestFullVolumeGeometryAndPhysicalBoundaries(unittest.TestCase):
         )
         self.assertIsNotNone(ctx_k3)
         assert ctx_k3 is not None
-        self.assertEqual(ctx_k3.unavailable_neighbors_count, 0)
+        self.assertEqual(ctx_k3.unavailable_neighbors_count, 3)
         self.assertEqual(ctx_k3.evaluated_neighbors_count, 3)  # slices 151, 152, 153
         self.assertEqual(ctx_k3.empty_neighbors_count, 3)
         self.assertEqual(ctx_k3.foreground_neighbors_count, 0)
+        self.assertEqual(ctx_k3.evaluated_neighbors_count + ctx_k3.unavailable_neighbors_count, 6)
 
     def test_interior_slice_full_neighborhood(self) -> None:
         """For interior slices, evaluated neighbors count equals 2*k and unavailable count is 0."""
@@ -194,8 +198,8 @@ class TestFullVolumeGeometryAndPhysicalBoundaries(unittest.TestCase):
         self.assertEqual(ctx_k3.unavailable_neighbors_count, 0)
         self.assertEqual(ctx_k3.evaluated_neighbors_count, 6)
 
-    def test_complete_volume_zero_unavailable_across_all_155_slices(self) -> None:
-        """When all 155 slices have primary predictions, unavailable count is 0 for EVERY slice."""
+    def test_complete_volume_boundary_and_interior_accounting_across_all_155_slices(self) -> None:
+        """When all 155 slices have primary predictions, interior slices have 0 unavailable while boundary slices account for out-of-volume slots per Stage C3 v1.1.3."""
         total_slices = 155
         all_preds = {z: _make_prediction("unetpp", dominant_class=0) for z in range(total_slices)}
 
@@ -209,16 +213,22 @@ class TestFullVolumeGeometryAndPhysicalBoundaries(unittest.TestCase):
                 )
                 self.assertIsNotNone(ctx, f"Context was None for slice {z} with k={k}")
                 assert ctx is not None
+                expected_unavailable = max(0, k - z) + max(0, z + k - (total_slices - 1))
+                expected_evaluated = (2 * k) - expected_unavailable
                 self.assertEqual(
                     ctx.unavailable_neighbors_count,
-                    0,
-                    f"Slice {z} reported {ctx.unavailable_neighbors_count} unavailable neighbors (k={k})",
+                    expected_unavailable,
+                    f"Slice {z} reported {ctx.unavailable_neighbors_count} unavailable neighbors (expected {expected_unavailable}, k={k})",
                 )
-                expected_evaluated = min(z + k, total_slices - 1) - max(z - k, 0)
                 self.assertEqual(
                     ctx.evaluated_neighbors_count,
                     expected_evaluated,
-                    f"Slice {z} expected {expected_evaluated} evaluated neighbors, got {ctx.evaluated_neighbors_count}",
+                    f"Slice {z} expected {expected_evaluated} evaluated neighbors, got {ctx.evaluated_neighbors_count} (k={k})",
+                )
+                self.assertEqual(
+                    ctx.evaluated_neighbors_count + ctx.unavailable_neighbors_count,
+                    2 * k,
+                    f"Slice {z} evaluated + unavailable must equal 2*k={2*k}",
                 )
 
 

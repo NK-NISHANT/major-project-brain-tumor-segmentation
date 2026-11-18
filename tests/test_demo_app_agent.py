@@ -7,14 +7,20 @@ Governing Authority: MASTER_PROJECT_BLUEPRINT_v2.0.md
 from __future__ import annotations
 
 import unittest
+from unittest.mock import MagicMock, patch
 from pathlib import Path
+from typing import Any
 import numpy as np
 import torch
 
-from src.agent.models import ModelRegistry
+from src.agent.calibration import STAGE_C2_REFERENCE_TEMPERATURES
+from src.agent.models import CheckpointProfile, ModelRegistry
 from src.agent.policy import evaluate_slice_policy, extract_slice_prediction
 from src.agent.runner import InferenceAgent
 from src.agent.state import (
+    STAGE_C_PRIMARY_MODEL,
+    STAGE_C_SECONDARY_MODEL,
+    STAGE_C_TAU,
     AgentAction,
     AgentDecision,
     AgentState,
@@ -24,12 +30,17 @@ from src.agent.state import (
 )
 from src.data.dataset import MODALITIES
 from tools.demo_app import (
+    HEALTHY_SLICE_DICE_NOTICE,
     MODALITY_DISPLAY_SPECS,
+    NON_TUMOR_SLICE_DICE_NOTICE,
     compute_slice_dice_metrics,
-    create_policy_config_for_model,
     format_decision_badge_html,
+    format_healthy_slice_notice_html,
+    get_model_registry,
+    get_stage_c_agent,
     get_validation_cases,
     load_calibrated_policy_config,
+    should_display_healthy_slice_notice,
     validate_input_slice_tensor,
 )
 
@@ -125,34 +136,34 @@ class TestInputTensorValidation(unittest.TestCase):
 
 
 class TestCalibrationConfigurationLoading(unittest.TestCase):
-    """Verify loading and adaptation of calibrated policy configurations."""
+    """Verify loading and fail-closed behavior of calibrated policy configurations."""
 
     def test_load_calibrated_policy_config(self) -> None:
         cfg, meta = load_calibrated_policy_config(tau_threshold=0.35)
         self.assertIsInstance(cfg, PolicyConfig)
-        self.assertAlmostEqual(cfg.primary_temperature, 2.8808, places=3)
+        self.assertAlmostEqual(cfg.primary_temperature, STAGE_C2_REFERENCE_TEMPERATURES["resunet"], places=4)
         self.assertIn("unet_resnet34", cfg.candidate_temperatures)
-        self.assertAlmostEqual(cfg.candidate_temperatures["unet_resnet34"], 2.6267, places=3)
+        self.assertAlmostEqual(
+            cfg.candidate_temperatures["unet_resnet34"],
+            STAGE_C2_REFERENCE_TEMPERATURES["unet_resnet34"],
+            places=4,
+        )
         self.assertEqual(cfg.high_uncertainty_threshold, 0.35)
         self.assertTrue(cfg.enable_empty_prediction_fallback)
         self.assertTrue(cfg.enable_axial_context)
+        self.assertEqual(cfg.axial_context_window, 2)
+        self.assertEqual(cfg.min_neighbor_foreground_slices, 1)
 
-    def test_create_policy_config_for_model(self) -> None:
-        base_cfg, _ = load_calibrated_policy_config()
+    def test_load_calibrated_policy_config_fails_closed_on_missing_artifact(self) -> None:
+        """Must fail closed with FileNotFoundError if calibration artifact is missing."""
+        with self.assertRaises(FileNotFoundError):
+            load_calibrated_policy_config(calib_path=Path("results/non_existent_calibration.json"))
 
-        # ResUNet configuration
-        cfg_resunet = create_policy_config_for_model("resunet", base_cfg, tau_threshold=0.35)
-        self.assertAlmostEqual(cfg_resunet.primary_temperature, 2.8808, places=3)
-        self.assertEqual(cfg_resunet.fallback_priority[0], "unet_resnet34")
-
-        # UNetResNet34 configuration
-        cfg_resnet34 = create_policy_config_for_model("unet_resnet34", base_cfg, tau_threshold=0.35)
-        self.assertAlmostEqual(cfg_resnet34.primary_temperature, 2.6267, places=3)
-        self.assertEqual(cfg_resnet34.fallback_priority[0], "resunet")
-
-        # Standard UNet configuration
-        cfg_unet = create_policy_config_for_model("unet", base_cfg, tau_threshold=0.35)
-        self.assertEqual(cfg_unet.primary_temperature, 1.0)
+    def test_load_calibrated_policy_config_rejects_tau_override(self) -> None:
+        """Must fail closed with ValueError if non-authoritative tau is requested."""
+        with self.assertRaises(ValueError) as cm:
+            load_calibrated_policy_config(tau_threshold=0.40)
+        self.assertIn("Stage C policy requires high_uncertainty_threshold tau=0.35", str(cm.exception))
 
 
 class TestEmptyPredictionAndUncertaintyPolicy(unittest.TestCase):
@@ -301,13 +312,14 @@ class TestStructuredDecisionFormatting(unittest.TestCase):
             mean_uncertainty=0.1852,
             has_empty_foreground=False,
             reasons=("nominal_acceptance",),
-            calibrated_temperature=2.8808,
+            calibrated_temperature=2.8805,
             is_human_review_recommended=False,
         )
         html = format_decision_badge_html(dec, tau=0.35, primary_model="ResUNet-2D")
         self.assertIn("ACTION: ACCEPT", html)
         self.assertIn("Autonomous Retention", html)
-        self.assertIn("0.1852", html)
+        self.assertIn("H = 0.1852 < τ = 0.35", html)
+        self.assertNotIn("≤", html)
         self.assertIn("resunet", html)
 
     def test_format_fallback_badge(self) -> None:
@@ -318,13 +330,29 @@ class TestStructuredDecisionFormatting(unittest.TestCase):
             mean_uncertainty=0.2215,
             has_empty_foreground=False,
             reasons=("fallback_selected_unet_resnet34",),
-            calibrated_temperature=2.6267,
+            calibrated_temperature=2.6261,
             is_human_review_recommended=False,
         )
         html = format_decision_badge_html(dec, tau=0.35, primary_model="ResUNet-2D")
         self.assertIn("ACTION: FALLBACK_SWITCH", html)
         self.assertIn("Model Substitution", html)
         self.assertIn("unet_resnet34", html)
+
+    def test_format_fallback_badge_with_candidate_high_uncertainty(self) -> None:
+        dec = AgentDecision(
+            action=AgentAction.FALLBACK_SWITCH,
+            selected_model="unet_resnet34",
+            final_mask=torch.ones((16, 16), dtype=torch.uint8),
+            mean_uncertainty=0.3842,
+            has_empty_foreground=False,
+            reasons=("fallback_selected_unet_resnet34", "candidate_high_uncertainty_warning"),
+            calibrated_temperature=2.6261,
+            is_human_review_recommended=False,
+        )
+        html = format_decision_badge_html(dec, tau=0.35, primary_model="ResUNet-2D")
+        self.assertIn("ACTION: FALLBACK_SWITCH", html)
+        self.assertIn("Candidate High Uncertainty Notice", html)
+        self.assertNotIn("ACTION: FLAG_UNRELIABLE", html)
 
     def test_format_flag_unreliable_badge(self) -> None:
         dec = AgentDecision(
@@ -334,12 +362,72 @@ class TestStructuredDecisionFormatting(unittest.TestCase):
             mean_uncertainty=None,
             has_empty_foreground=True,
             reasons=("warning_complete_empty_prediction",),
-            calibrated_temperature=2.8808,
+            calibrated_temperature=2.8805,
             is_human_review_recommended=True,
         )
         html = format_decision_badge_html(dec, tau=0.35, primary_model="ResUNet-2D")
         self.assertIn("ACTION: FLAG_UNRELIABLE", html)
         self.assertIn("Specialist Review Required", html)
+        self.assertIn("Clinical Notice", html)
+        self.assertIn("statistical prediction uncertainty", html)
+
+
+class TestEntropyDecisionBoundary(unittest.TestCase):
+    """Explicit boundary tests for the frozen C3 v1.1.3 decision boundary (tau = 0.35)."""
+
+    def test_entropy_immediately_below_tau_accepts(self) -> None:
+        """Entropy immediately below 0.35 (e.g. 0.349999) must produce ACCEPT."""
+        pred = SlicePrediction(
+            model_name="resunet",
+            logits=torch.zeros((1, 4, 16, 16)),
+            pred_mask=torch.ones((16, 16), dtype=torch.uint8),
+            pred_foreground_pixels=256,
+            mean_foreground_entropy=0.349999,
+            has_empty_foreground=False,
+        )
+        state = AgentState(case_id="case_boundary_01", slice_index=50, primary_prediction=pred)
+        config = PolicyConfig(high_uncertainty_threshold=0.35)
+        decision = evaluate_slice_policy(state, config)
+        self.assertEqual(decision.action, AgentAction.ACCEPT)
+        self.assertEqual(decision.selected_model, "resunet")
+        self.assertFalse(decision.is_human_review_recommended)
+        self.assertIn("nominal_acceptance", decision.reasons)
+
+    def test_entropy_exactly_at_tau_flags_unreliable(self) -> None:
+        """Entropy exactly equal to 0.350000 must produce FLAG_UNRELIABLE."""
+        pred = SlicePrediction(
+            model_name="resunet",
+            logits=torch.zeros((1, 4, 16, 16)),
+            pred_mask=torch.ones((16, 16), dtype=torch.uint8),
+            pred_foreground_pixels=256,
+            mean_foreground_entropy=0.350000,
+            has_empty_foreground=False,
+        )
+        state = AgentState(case_id="case_boundary_02", slice_index=50, primary_prediction=pred)
+        config = PolicyConfig(high_uncertainty_threshold=0.35)
+        decision = evaluate_slice_policy(state, config)
+        self.assertEqual(decision.action, AgentAction.FLAG_UNRELIABLE)
+        self.assertEqual(decision.selected_model, "resunet")
+        self.assertTrue(decision.is_human_review_recommended)
+        self.assertTrue(any("warning_high_uncertainty" in r for r in decision.reasons))
+
+    def test_entropy_immediately_above_tau_flags_unreliable(self) -> None:
+        """Entropy immediately above 0.35 (e.g. 0.350001) must produce FLAG_UNRELIABLE."""
+        pred = SlicePrediction(
+            model_name="resunet",
+            logits=torch.zeros((1, 4, 16, 16)),
+            pred_mask=torch.ones((16, 16), dtype=torch.uint8),
+            pred_foreground_pixels=256,
+            mean_foreground_entropy=0.350001,
+            has_empty_foreground=False,
+        )
+        state = AgentState(case_id="case_boundary_03", slice_index=50, primary_prediction=pred)
+        config = PolicyConfig(high_uncertainty_threshold=0.35)
+        decision = evaluate_slice_policy(state, config)
+        self.assertEqual(decision.action, AgentAction.FLAG_UNRELIABLE)
+        self.assertEqual(decision.selected_model, "resunet")
+        self.assertTrue(decision.is_human_review_recommended)
+        self.assertTrue(any("warning_high_uncertainty" in r for r in decision.reasons))
 
 
 class TestValidationCohortIntegrity(unittest.TestCase):
@@ -380,6 +468,238 @@ class TestSliceDiceMetrics(unittest.TestCase):
         metrics = compute_slice_dice_metrics(zeros, zeros)
         self.assertAlmostEqual(metrics["wt_dice"], 1.0)
         self.assertTrue(np.isnan(metrics["macro_fg_dice"]))
+
+
+class TestHealthySliceDiceInterpretationNotice(unittest.TestCase):
+    """Verify conditional display and exact text of the non-tumor slice Dice interpretation notice."""
+
+    def test_both_masks_empty_displays_notice(self) -> None:
+        """Condition 1: Both ground truth and predicted masks empty -> notice displayed."""
+        gt_empty = np.zeros((240, 240), dtype=np.uint8)
+        pred_empty = np.zeros((240, 240), dtype=np.uint8)
+        self.assertTrue(should_display_healthy_slice_notice(pred_empty, gt_empty))
+        html = format_healthy_slice_notice_html()
+        self.assertIn(NON_TUMOR_SLICE_DICE_NOTICE, html)
+        self.assertIn("Non-Tumor Slice Metric Notice:", html)
+        self.assertIn("Dice = 1.000 reflects empty-empty agreement", html)
+
+    def test_ground_truth_empty_prediction_non_empty_omits_notice(self) -> None:
+        """Condition 2: Ground truth empty, prediction non-empty -> notice not displayed."""
+        gt_empty = np.zeros((240, 240), dtype=np.uint8)
+        pred_tumor = np.zeros((240, 240), dtype=np.uint8)
+        pred_tumor[50:60, 50:60] = 2  # Edema
+        self.assertFalse(should_display_healthy_slice_notice(pred_tumor, gt_empty))
+
+    def test_ground_truth_non_empty_prediction_empty_omits_notice(self) -> None:
+        """Condition 3: Ground truth non-empty, prediction empty -> notice not displayed."""
+        gt_tumor = np.zeros((240, 240), dtype=np.uint8)
+        gt_tumor[50:60, 50:60] = 1  # Necrotic core
+        pred_empty = np.zeros((240, 240), dtype=np.uint8)
+        self.assertFalse(should_display_healthy_slice_notice(pred_empty, gt_tumor))
+
+    def test_both_masks_contain_tumor_omits_notice(self) -> None:
+        """Condition 4: Both ground truth and prediction contain tumor -> notice not displayed."""
+        gt_tumor = np.zeros((240, 240), dtype=np.uint8)
+        gt_tumor[50:60, 50:60] = 3  # Enhancing tumor
+        pred_tumor = np.zeros((240, 240), dtype=np.uint8)
+        pred_tumor[50:60, 50:60] = 3
+        self.assertFalse(should_display_healthy_slice_notice(pred_tumor, gt_tumor))
+
+    def test_notice_text_exact_wording(self) -> None:
+        """Notice text must match the exact clinical specification verbatim."""
+        expected = (
+            "Both ground-truth and predicted masks are empty on this slice. "
+            "Dice = 1.000 reflects empty-empty agreement, not demonstrated tumor segmentation accuracy."
+        )
+        self.assertEqual(NON_TUMOR_SLICE_DICE_NOTICE, expected)
+        html = format_healthy_slice_notice_html()
+        self.assertIn(f"<b>Non-Tumor Slice Metric Notice:</b> {expected}", html)
+
+
+class TestDemoAppStageCIntegration(unittest.TestCase):
+    """Verify Streamlit Stage C agent factory and policy invariant enforcement."""
+
+    def test_get_model_registry_requires_stage_c_15ep(self) -> None:
+        """get_model_registry must reject legacy or historical profiles."""
+        reg = get_model_registry("cpu", profile=CheckpointProfile.STAGE_C_15EP)
+        self.assertEqual(reg.profile, CheckpointProfile.STAGE_C_15EP)
+
+        with self.assertRaises(ValueError) as cm:
+            get_model_registry("cpu", profile=CheckpointProfile.HISTORICAL_5EP)
+        self.assertIn("strictly requires CheckpointProfile.STAGE_C_15EP", str(cm.exception))
+
+    def test_get_stage_c_agent_invariants(self) -> None:
+        """get_stage_c_agent must produce an InferenceAgent with frozen C3 invariants."""
+        agent = get_stage_c_agent("cpu")
+        self.assertIsInstance(agent, InferenceAgent)
+        self.assertEqual(agent.primary_model, STAGE_C_PRIMARY_MODEL)
+        self.assertEqual(agent.config.fallback_priority, (STAGE_C_SECONDARY_MODEL,))
+        self.assertEqual(agent.config.high_uncertainty_threshold, STAGE_C_TAU)
+        self.assertEqual(agent.config.axial_context_window, 2)
+        self.assertEqual(agent.config.min_neighbor_foreground_slices, 1)
+        self.assertTrue(agent.config.enable_axial_context)
+        self.assertTrue(agent.config.enable_empty_prediction_fallback)
+        self.assertAlmostEqual(agent.primary_temperature, STAGE_C2_REFERENCE_TEMPERATURES["resunet"], places=4)
+        self.assertAlmostEqual(
+            agent.config.candidate_temperatures[STAGE_C_SECONDARY_MODEL],
+            STAGE_C2_REFERENCE_TEMPERATURES["unet_resnet34"],
+            places=4,
+        )
+
+    def test_mocked_stage_c_agent_execution_all_actions(self) -> None:
+        """Verify mocked run_slice execution under all three Stage C actions."""
+        agent = get_stage_c_agent("cpu")
+        dummy_slice = torch.randn((1, 4, 32, 32), dtype=torch.float32)
+
+        # 1. Nominal ACCEPT
+        low_ent_pred = _make_prediction("resunet", dominant_class=2, confidence_scale=12.0)
+        with patch.object(agent.registry, "predict_slice", return_value=low_ent_pred):
+            dec = agent.run_slice(
+                image=dummy_slice,
+                case_id="case_test",
+                slice_index=50,
+                case_primary_predictions={},
+                case_total_slices=155,
+            )
+            self.assertEqual(dec.action, AgentAction.ACCEPT)
+            self.assertEqual(dec.selected_model, "resunet")
+            self.assertAlmostEqual(dec.calibrated_temperature, STAGE_C2_REFERENCE_TEMPERATURES["resunet"], places=6)
+            self.assertFalse(dec.is_human_review_recommended)
+
+        # 2. FALLBACK_SWITCH with axial context support
+        empty_pred = _make_prediction("resunet", dominant_class=0)
+        cand_fg_pred = _make_prediction("unet_resnet34", dominant_class=1, confidence_scale=10.0)
+
+        def mock_predict(model_name: str, **kwargs: Any) -> SlicePrediction:
+            if model_name == "resunet":
+                return empty_pred
+            return cand_fg_pred
+
+        neighbor_preds = {
+            49: _make_prediction("resunet", dominant_class=1),
+            51: _make_prediction("resunet", dominant_class=0),
+        }
+        with patch.object(agent.registry, "predict_slice", side_effect=mock_predict):
+            dec = agent.run_slice(
+                image=dummy_slice,
+                case_id="case_test",
+                slice_index=50,
+                case_primary_predictions=neighbor_preds,
+                case_total_slices=155,
+            )
+            self.assertEqual(dec.action, AgentAction.FALLBACK_SWITCH)
+            self.assertEqual(dec.selected_model, "unet_resnet34")
+            self.assertAlmostEqual(
+                dec.calibrated_temperature, STAGE_C2_REFERENCE_TEMPERATURES["unet_resnet34"], places=6
+            )
+            self.assertFalse(dec.is_human_review_recommended)
+
+        # 3. FALLBACK_SWITCH with high candidate uncertainty (Option 1 behavior)
+        h_logits = torch.ones((1, 4, 16, 16), dtype=torch.float32)
+        h_logits[:, 1, :, :] = 1.05  # Class 1 barely dominant -> high entropy >= 0.35
+        cand_high_ent = extract_slice_prediction("unet_resnet34", h_logits)
+        self.assertGreaterEqual(cand_high_ent.mean_foreground_entropy or 0.0, 0.35)
+
+        def mock_predict_high_ent(model_name: str, **kwargs: Any) -> SlicePrediction:
+            if model_name == "resunet":
+                return empty_pred
+            return cand_high_ent
+
+        with patch.object(agent.registry, "predict_slice", side_effect=mock_predict_high_ent):
+            dec = agent.run_slice(
+                image=dummy_slice,
+                case_id="case_test",
+                slice_index=50,
+                case_primary_predictions=neighbor_preds,
+                case_total_slices=155,
+            )
+            self.assertEqual(dec.action, AgentAction.FALLBACK_SWITCH)
+            self.assertEqual(dec.selected_model, "unet_resnet34")
+            self.assertAlmostEqual(
+                dec.calibrated_temperature, STAGE_C2_REFERENCE_TEMPERATURES["unet_resnet34"], places=6
+            )
+            self.assertIn("candidate_high_uncertainty_warning", dec.reasons)
+            self.assertFalse(dec.is_human_review_recommended)
+
+        # 4. FLAG_UNRELIABLE due to unsupported empty prediction
+        empty_neighbors = {
+            49: _make_prediction("resunet", dominant_class=0),
+            51: _make_prediction("resunet", dominant_class=0),
+        }
+        with patch.object(agent.registry, "predict_slice", side_effect=mock_predict):
+            dec = agent.run_slice(
+                image=dummy_slice,
+                case_id="case_test",
+                slice_index=50,
+                case_primary_predictions=empty_neighbors,
+                case_total_slices=155,
+            )
+            self.assertEqual(dec.action, AgentAction.FLAG_UNRELIABLE)
+            self.assertEqual(dec.selected_model, "resunet")
+            self.assertAlmostEqual(dec.calibrated_temperature, STAGE_C2_REFERENCE_TEMPERATURES["resunet"], places=6)
+            self.assertTrue(dec.is_human_review_recommended)
+
+    def test_stage_c_agent_entropy_boundary_execution(self) -> None:
+        """Verify InferenceAgent boundary execution: 0.3499 -> ACCEPT, 0.3500 & 0.3501 -> FLAG_UNRELIABLE."""
+        agent = get_stage_c_agent("cpu")
+        dummy_slice = torch.randn((1, 4, 16, 16), dtype=torch.float32)
+
+        # 1. H = 0.3499 -> strictly below tau=0.35 -> ACCEPT
+        pred_below = SlicePrediction(
+            model_name="resunet",
+            logits=torch.zeros((1, 4, 16, 16)),
+            pred_mask=torch.ones((16, 16), dtype=torch.uint8),
+            pred_foreground_pixels=256,
+            mean_foreground_entropy=0.3499,
+            has_empty_foreground=False,
+        )
+        with patch.object(agent.registry, "predict_slice", return_value=pred_below):
+            dec = agent.run_slice(image=dummy_slice, case_id="c_test", slice_index=50)
+            self.assertEqual(dec.action, AgentAction.ACCEPT)
+            self.assertEqual(dec.selected_model, "resunet")
+            self.assertFalse(dec.is_human_review_recommended)
+
+        # 2. H = 0.3500 -> exactly at tau=0.35 -> FLAG_UNRELIABLE
+        pred_exact = SlicePrediction(
+            model_name="resunet",
+            logits=torch.zeros((1, 4, 16, 16)),
+            pred_mask=torch.ones((16, 16), dtype=torch.uint8),
+            pred_foreground_pixels=256,
+            mean_foreground_entropy=0.3500,
+            has_empty_foreground=False,
+        )
+        with patch.object(agent.registry, "predict_slice", return_value=pred_exact):
+            dec = agent.run_slice(image=dummy_slice, case_id="c_test", slice_index=50)
+            self.assertEqual(dec.action, AgentAction.FLAG_UNRELIABLE)
+            self.assertEqual(dec.selected_model, "resunet")
+            self.assertTrue(dec.is_human_review_recommended)
+
+        # 3. H = 0.3501 -> strictly above tau=0.35 -> FLAG_UNRELIABLE
+        pred_above = SlicePrediction(
+            model_name="resunet",
+            logits=torch.zeros((1, 4, 16, 16)),
+            pred_mask=torch.ones((16, 16), dtype=torch.uint8),
+            pred_foreground_pixels=256,
+            mean_foreground_entropy=0.3501,
+            has_empty_foreground=False,
+        )
+        with patch.object(agent.registry, "predict_slice", return_value=pred_above):
+            dec = agent.run_slice(image=dummy_slice, case_id="c_test", slice_index=50)
+            self.assertEqual(dec.action, AgentAction.FLAG_UNRELIABLE)
+            self.assertEqual(dec.selected_model, "resunet")
+            self.assertTrue(dec.is_human_review_recommended)
+
+    def test_stage_c_agent_runtime_inference_error_propagates(self) -> None:
+        """Verify that neural network inference errors propagate rather than silently substituting models."""
+        agent = get_stage_c_agent("cpu")
+        dummy_slice = torch.randn((1, 4, 16, 16), dtype=torch.float32)
+
+        with patch.object(
+            agent.registry, "predict_slice", side_effect=RuntimeError("Simulated neural network forward failure")
+        ):
+            with self.assertRaises(RuntimeError) as cm:
+                agent.run_slice(image=dummy_slice, case_id="c_test", slice_index=50)
+            self.assertIn("Simulated neural network forward failure", str(cm.exception))
 
 
 if __name__ == "__main__":

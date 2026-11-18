@@ -1,0 +1,6 @@
+model,total_slices,empty_prediction_slices,non_empty_slices,empty_slice_pct,mean_entropy,std_entropy,median_entropy,iqr_entropy,min_entropy,max_entropy,argmax_invariance_mismatches
+ResUNet-2D,16275,9401,6874,57.76%,0.2686,0.0903,0.2474,"[0.1995, 0.3185]",0.0000,0.6146,0
+UNetResNet34,16275,9580,6695,58.86%,0.3169,0.1146,0.2892,"[0.2294, 0.3860]",0.1128,0.7289,0
+U-Net,16275,10098,6177,62.05%,0.2923,0.0896,0.2701,"[0.2293, 0.3325]",0.1396,0.7809,0
+U-Net++,16275,10147,6128,62.35%,0.2883,0.0907,0.2685,"[0.2168, 0.3408]",0.1286,0.7227,0
+Attention U-Net,16275,10140,6135,62.30%,0.2775,0.0995,0.2499,"[0.2055, 0.3261]",0.1180,0.9258,0

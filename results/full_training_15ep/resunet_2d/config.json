@@ -1,0 +1,16 @@
+{
+  "model_name": "resunet_2d",
+  "parameters": 8114604,
+  "epochs": 15,
+  "batch_size": 2,
+  "base_lr": 0.001,
+  "warmup_epochs": 2,
+  "max_grad_norm": 1.0,
+  "seed": 42,
+  "train_cases": 721,
+  "val_cases": 155,
+  "train_slices": 59020,
+  "val_slices": 12364,
+  "device": "cuda",
+  "gpu_name": "NVIDIA GeForce RTX 4070 Laptop GPU"
+}

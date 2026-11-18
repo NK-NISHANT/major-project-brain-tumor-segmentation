@@ -8,25 +8,29 @@ __pycache__/
 venv/
 env/
 
-# Large/raw datasets
+# Large / Raw Datasets & Extracted Archives
 data/raw/
 data/processed/
+/data/archives/
+/data/extracted_archive/
 *.zip
 *.nii
 *.nii.gz
 
-# ML checkpoints / large model files
+# ML checkpoints / large model weights (>100MB)
 *.pt
 *.pth
 *.ckpt
 *.onnx
 *.safetensors
 
-# Experiment-generated files
+# Experiment-generated checkpoints, model weights & intermediate cache dumps
 results/checkpoints/
 results/models/
+results/**/case_voxels/
+results/**/recovery_snapshot_*/
 
-# Jupyter
+# Jupyter Notebooks
 .ipynb_checkpoints/
 
 # IDE / OS
@@ -35,52 +39,40 @@ results/models/
 .DS_Store
 Thumbs.db
 
-# Experiment outputs
-results/
-
 # Private AI coding reference materials
 /MajorProject_AI_Coding_Pack/
 /MajorProject_AI_Coding_Pack.zip
 /MajorProject_AI_Coding_Project_Pack.docx
 /MajorProject_AI_Coding_Project_Pack.pdf
 
-# Temporary workspace and generated report renders
-/tmp/
-
-# Python cache
-**/__pycache__/
-*.py[cod]
-
 # Private legacy AI coding materials
 /archive/legacy_packs/
-
-# Office temporary lock files
-~$*
-*.tmp
-*.temp
-
-# Temporary workspace and generated report renders
-/tmp/
-
-# Python cache
-**/__pycache__/
-*.py[cod]
-
-# Private legacy AI coding materials
-/archive/legacy_packs/
-
-# Office temporary lock files
-~$*
-*.tmp
-*.temp
 
 # Private institutional and report source materials
 /Report_Materials/
 /docs/reference/
 /Final_Report_Brain_Tumor_Segmentation.docx
+/submissions/
 
-# Temporary report verification artifact
+# Deprecated legacy migration source / rollback source (preserved locally)
+/documents/
+/pre_tx_backups*/
+/scratch/
+
+# Temporary workspace & Office lock files
+/tmp/
+~$*
+*.tmp
+*.temp
 /docs/reports/tmp_smoke_test.docx
 
-# Temporary report artifacts
-/docs/reports/tmp_smoke_test.docx
+# Quarantined Test Cohort Manifests (Locked & Sealed - Do Not Track)
+/results/dataset_splits/test_manifest.json
+/results/dataset_splits/final_split_manifest.json
+
+# Option A: Lightweight Binary & Local-Only Tracking Policy for Reports & Dossiers
+# (Track Markdown, Python scripts, PNG/SVG figures, CSV tables; ignore heavy office/PDF binaries & local-only scripts)
+reports/**/*.docx
+reports/**/*.pdf
+reports/**/*.pptx
+reports/**/*.ps1

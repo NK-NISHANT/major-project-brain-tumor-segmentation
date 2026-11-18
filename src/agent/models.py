@@ -1,7 +1,17 @@
+"""Model Registry and Architecture Definitions for Brain Tumor Segmentation.
+
+Workspace: D:\\MajorProject
+Governing Authority: MASTER_PROJECT_BLUEPRINT_v2.0.md
+Batch 1A: Stage C Checkpoint Profile & Provenance Foundation.
+"""
+
 from __future__ import annotations
 
+from enum import Enum
+import hashlib
+import os
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, BinaryIO, Mapping
 
 import torch
 from torch import nn
@@ -16,10 +26,62 @@ from src.models.unetpp import UNetPlusPlus2D
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# Canonical model names and default checkpoint locations verified on disk
+
+class CheckpointProfile(str, Enum):
+    """Explicit model checkpoint profiles.
+
+    Profiles:
+        LEGACY_DEFAULT: Mixed legacy default (5-epoch baselines + 15-epoch Gate 5D candidates
+            if present on disk). Preserves exact pre-implementation behavior of ModelRegistry().
+        GENUINE_5EP: Pure 5-epoch pilot checkpoints for all 5 architectures.
+        STAGE_C_15EP: Authoritative Stage C 15-epoch scaled models with cryptographic SHA-256
+            verification prior to deserialization.
+        HISTORICAL_5EP: Backward compatibility alias for the legacy default.
+    """
+
+    LEGACY_DEFAULT = "legacy_default"
+    GENUINE_5EP = "genuine_5ep"
+    STAGE_C_15EP = "stage_c_15ep"
+    HISTORICAL_5EP = "historical_5ep"
+
+
+def normalize_profile(profile: CheckpointProfile | str | None) -> CheckpointProfile:
+    """Normalize input profile identifier to CheckpointProfile enum."""
+    if profile is None:
+        return CheckpointProfile.LEGACY_DEFAULT
+    if isinstance(profile, CheckpointProfile):
+        return profile
+    if isinstance(profile, str):
+        cleaned = profile.strip().lower()
+        if cleaned in ("legacy_default", "legacy", "default"):
+            return CheckpointProfile.LEGACY_DEFAULT
+        if cleaned in ("genuine_5ep", "strict_5ep", "pure_5ep"):
+            return CheckpointProfile.GENUINE_5EP
+        if cleaned in ("historical_5ep", "historical"):
+            return CheckpointProfile.HISTORICAL_5EP
+        if cleaned in ("stage_c_15ep", "stage_c", "15ep"):
+            return CheckpointProfile.STAGE_C_15EP
+        for member in CheckpointProfile:
+            if member.value == cleaned or member.name.lower() == cleaned:
+                return member
+    valid_profiles = [p.value for p in CheckpointProfile]
+    raise ValueError(
+        f"Unknown checkpoint profile '{profile}'. Expected one of {valid_profiles}."
+    )
+
+
 # Canonical baseline model names and default checkpoint locations verified on disk
 CANONICAL_MODEL_NAMES = ("unet", "unetpp", "attention_unet")
 CANDIDATE_MODEL_NAMES = ("resunet", "unet_resnet34")
+
+# All approved Stage C models
+STAGE_C_MODELS = (
+    "resunet",
+    "unet_resnet34",
+    "unet",
+    "unetpp",
+    "attention_unet",
+)
 
 MODEL_FACTORIES: Mapping[str, type[nn.Module]] = {
     "unet": UNet2D,
@@ -29,7 +91,7 @@ MODEL_FACTORIES: Mapping[str, type[nn.Module]] = {
     "unet_resnet34": UNetResNet34,
 }
 
-# Verified historical baseline checkpoints present on disk
+# Verified historical baseline checkpoints present on disk (5-epoch pilot)
 DEFAULT_CHECKPOINTS: Mapping[str, Path] = {
     "unet": PROJECT_ROOT / "results" / "baseline_unet2d_5ep" / "best_model.pt",
     "unetpp": PROJECT_ROOT / "results" / "unetpp2d_5ep" / "best_model.pt",
@@ -54,6 +116,33 @@ CANDIDATE_CHECKPOINTS: Mapping[str, Path] = {
         if GATE5D_CHECKPOINTS["unet_resnet34"].exists()
         else PROJECT_ROOT / "results" / "unet_resnet34_5ep" / "best_model.pt"
     ),
+}
+
+# Genuinely 5-epoch pilot checkpoints for all 5 models (pure 5-epoch screening profile)
+GENUINE_5EP_CHECKPOINTS: Mapping[str, Path] = {
+    "unet": PROJECT_ROOT / "results" / "baseline_unet2d_5ep" / "best_model.pt",
+    "unetpp": PROJECT_ROOT / "results" / "unetpp2d_5ep" / "best_model.pt",
+    "attention_unet": PROJECT_ROOT / "results" / "attention_unet2d_5ep" / "best_model.pt",
+    "resunet": PROJECT_ROOT / "results" / "resunet2d_5ep" / "best_model.pt",
+    "unet_resnet34": PROJECT_ROOT / "results" / "unet_resnet34_5ep" / "best_model.pt",
+}
+
+# Authoritative Stage C 15-epoch scaled model checkpoints verified on disk
+STAGE_C_CHECKPOINTS: Mapping[str, Path] = {
+    "resunet": PROJECT_ROOT / "results" / "full_training_15ep" / "resunet_2d" / "best_model.pt",
+    "unet_resnet34": PROJECT_ROOT / "results" / "full_training_15ep" / "unet_resnet34" / "best_model.pt",
+    "unet": PROJECT_ROOT / "results" / "stage_c" / "phase1" / "unet_721_seed42" / "best_model.pt",
+    "unetpp": PROJECT_ROOT / "results" / "stage_c" / "phase1" / "unetpp_721_seed42" / "best_model.pt",
+    "attention_unet": PROJECT_ROOT / "results" / "stage_c" / "phase1" / "attention_unet_721_seed42" / "best_model.pt",
+}
+
+# Authoritative Stage C cryptographic SHA-256 identities
+STAGE_C_EXPECTED_HASHES: Mapping[str, str] = {
+    "resunet": "81ef568df7dc47e3b883d4c676abc54213261e35aef079c372ac5225eeb19a8d",
+    "unet_resnet34": "891d869a2369c395dbcb9b2b1adf3fec36d42f5e9b16508f7a964198a9332d1d",
+    "unet": "37d35bf578868356caadc7f4a173af7b82535bb427fdb6cce8df121a9bf06cef",
+    "unetpp": "fbd237a42bdf12f9c945a1c8caa953dfb44a1672d3514cc842368fa535f4bfe6",
+    "attention_unet": "5f7d8dae1fb68e86905d2c36f56446de8c0a09babe0ce550230b157aa11e591e",
 }
 
 # Alias mapping for user convenience
@@ -92,27 +181,99 @@ def normalize_model_name(name: str) -> str:
     )
 
 
-class ModelRegistry:
-    """Lazy-loading model registry and common inference interface for segmentation models.
+def compute_stream_sha256(stream: BinaryIO, chunk_size: int = 1024 * 1024) -> str:
+    """Calculate SHA-256 digest of an open binary stream using chunked reads."""
+    hasher = hashlib.sha256()
+    while chunk := stream.read(chunk_size):
+        hasher.update(chunk)
+    return hasher.hexdigest()
 
-    Memory Behavior:
-        - Checkpoints and models are NOT instantiated or loaded into memory/VRAM at initialization.
-        - Models are lazily loaded onto the designated device upon the first `get_model` or
-          `predict_slice` call.
-        - Loaded models are retained in an internal dictionary (`_loaded_models`) to avoid repeated disk reads.
-        - `unload(model_name)` or `unload()` can be called to evict models and release GPU VRAM.
+
+def compute_file_sha256(path: Path | str, chunk_size: int = 1024 * 1024) -> str:
+    """Calculate SHA-256 digest of a file using chunked reads without metadata caching."""
+    p = Path(path).resolve()
+    if not p.exists() or not p.is_file():
+        raise FileNotFoundError(f"Cannot compute SHA-256: file not found at {p}")
+    with open(p, "rb") as f:
+        return compute_stream_sha256(f, chunk_size=chunk_size)
+
+
+def verify_checkpoint_sha256(
+    path: Path | str,
+    expected_sha256: str | None = None,
+    model_name: str = "",
+    profile: str = "",
+) -> str:
+    """Verify file integrity against expected SHA-256 by computing full digest (no metadata shortcut).
+
+    Raises:
+        FileNotFoundError: If the checkpoint file does not exist.
+        ValueError: If the computed SHA-256 differs from expected_sha256.
+    """
+    p = Path(path).resolve()
+    if not p.exists() or not p.is_file():
+        model_info = f" for model '{model_name}'" if model_name else ""
+        profile_info = f" under profile '{profile}'" if profile else ""
+        raise FileNotFoundError(
+            f"Checkpoint file{model_info}{profile_info} not found at {p}."
+        )
+
+    actual_sha256 = compute_file_sha256(p)
+
+    if expected_sha256 is not None:
+        expected_clean = expected_sha256.strip().lower()
+        if actual_sha256 != expected_clean:
+            model_info = f" for model '{model_name}'" if model_name else ""
+            profile_info = f" under profile '{profile}'" if profile else ""
+            raise ValueError(
+                f"Checkpoint integrity verification failed{model_info}{profile_info}!\n"
+                f"  File Path:        {p}\n"
+                f"  Expected SHA-256: {expected_clean}\n"
+                f"  Actual SHA-256:   {actual_sha256}"
+            )
+
+    return actual_sha256
+
+
+class ModelRegistry:
+    """Lazy-loading model registry and common inference interface supporting profiles.
+
+    Backward-Compatibility Guarantees:
+        - Default constructor ModelRegistry() without arguments retains exactly its
+          pre-implementation historical checkpoint resolution behavior (LEGACY_DEFAULT).
+        - Profile LEGACY_DEFAULT reproduces legacy mixed default mappings (5ep baseline, 15ep Gate 5D candidates).
+        - Profile GENUINE_5EP resolves pure 5-epoch screening checkpoints for all 5 models.
+        - Profile STAGE_C_15EP requires explicit selection and resolves authoritative
+          15-epoch scaled models with cryptographic SHA-256 verification before loading.
+        - Profile HISTORICAL_5EP is retained as a compatibility alias for the legacy default.
     """
 
     def __init__(
         self,
         checkpoint_paths: Mapping[str, Path | str] | None = None,
         default_device: torch.device | str | None = None,
+        profile: CheckpointProfile | str | None = None,
     ) -> None:
+        if profile is None:
+            self.profile = CheckpointProfile.LEGACY_DEFAULT
+        else:
+            self.profile = normalize_profile(profile)
         self.checkpoint_paths: dict[str, Path] = {}
-        for canonical in CANONICAL_MODEL_NAMES:
-            default_path = DEFAULT_CHECKPOINTS[canonical]
+
+        if self.profile == CheckpointProfile.STAGE_C_15EP:
+            base_mapping = STAGE_C_CHECKPOINTS
+            models_to_resolve = STAGE_C_MODELS
+        elif self.profile == CheckpointProfile.GENUINE_5EP:
+            base_mapping = GENUINE_5EP_CHECKPOINTS
+            models_to_resolve = CANONICAL_MODEL_NAMES + CANDIDATE_MODEL_NAMES
+        else:
+            # LEGACY_DEFAULT / HISTORICAL_5EP: exact preservation of pre-implementation behavior
+            base_mapping = {**DEFAULT_CHECKPOINTS, **CANDIDATE_CHECKPOINTS}
+            models_to_resolve = CANONICAL_MODEL_NAMES + CANDIDATE_MODEL_NAMES
+
+        for canonical in models_to_resolve:
+            default_path = base_mapping[canonical]
             if checkpoint_paths is not None:
-                # Check if specified by canonical or alias
                 found_path = None
                 for key, path_val in checkpoint_paths.items():
                     if normalize_model_name(key) == canonical:
@@ -121,18 +282,6 @@ class ModelRegistry:
                 self.checkpoint_paths[canonical] = found_path if found_path is not None else default_path
             else:
                 self.checkpoint_paths[canonical] = default_path
-
-        for candidate in CANDIDATE_MODEL_NAMES:
-            default_path = CANDIDATE_CHECKPOINTS[candidate]
-            if checkpoint_paths is not None:
-                found_path = None
-                for key, path_val in checkpoint_paths.items():
-                    if normalize_model_name(key) == candidate:
-                        found_path = Path(path_val)
-                        break
-                self.checkpoint_paths[candidate] = found_path if found_path is not None else default_path
-            else:
-                self.checkpoint_paths[candidate] = default_path
 
         if default_device is None:
             self.default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -146,6 +295,35 @@ class ModelRegistry:
         """Names of models currently loaded in memory."""
         return tuple(self._loaded_models.keys())
 
+    def verify_checkpoint(self, model_name: str) -> str:
+        """Verify and return the SHA-256 digest of a specific model's checkpoint.
+
+        For STAGE_C_15EP, validates against the authoritative expected hash.
+        """
+        canonical = normalize_model_name(model_name)
+        if canonical not in self.checkpoint_paths:
+            raise KeyError(
+                f"Model '{canonical}' is not configured in profile '{self.profile.value}'."
+            )
+        expected_hash = (
+            STAGE_C_EXPECTED_HASHES.get(canonical)
+            if self.profile == CheckpointProfile.STAGE_C_15EP
+            else None
+        )
+        return verify_checkpoint_sha256(
+            self.checkpoint_paths[canonical],
+            expected_sha256=expected_hash,
+            model_name=canonical,
+            profile=self.profile.value,
+        )
+
+    def verify_all_checkpoints(self) -> dict[str, str]:
+        """Verify and return SHA-256 digests for all models in the active profile."""
+        digests = {}
+        for canonical in self.checkpoint_paths:
+            digests[canonical] = self.verify_checkpoint(canonical)
+        return digests
+
     def get_model(
         self,
         model_name: str,
@@ -154,7 +332,7 @@ class ModelRegistry:
         """Lazily load and return the requested neural network module.
 
         Args:
-            model_name: Name or alias of the model ("unet", "unetpp", "attention_unet").
+            model_name: Name or alias of the model ("unet", "unetpp", "attention_unet", "resunet", "unet_resnet34").
             device: Target execution device. Defaults to `self.default_device`.
 
         Returns:
@@ -162,7 +340,7 @@ class ModelRegistry:
 
         Raises:
             FileNotFoundError: If the configured checkpoint does not exist on disk.
-            ValueError: If the model name is unrecognized.
+            ValueError: If model name is unrecognized or checkpoint hash verification fails.
         """
         canonical = normalize_model_name(model_name)
         target_device = torch.device(device) if device is not None else self.default_device
@@ -175,10 +353,15 @@ class ModelRegistry:
                 model.to(target_device)
             return model
 
+        if canonical not in self.checkpoint_paths:
+            raise KeyError(
+                f"Model '{canonical}' is not configured in profile '{self.profile.value}'."
+            )
+
         checkpoint_path = self.checkpoint_paths[canonical]
         if not checkpoint_path.exists():
             raise FileNotFoundError(
-                f"Checkpoint file for '{canonical}' not found at {checkpoint_path}."
+                f"Checkpoint file for '{canonical}' under profile '{self.profile.value}' not found at {checkpoint_path}."
             )
 
         model_class = MODEL_FACTORIES[canonical]
@@ -191,7 +374,32 @@ class ModelRegistry:
         else:
             model = model_class(in_channels=4, num_classes=4, base_channels=32)
 
-        checkpoint = torch.load(checkpoint_path, map_location=target_device, weights_only=False)
+        # For Stage C models:
+        # 1. Open checkpoint once in binary mode
+        # 2. Calculate SHA-256 using chunked reads from that open file handle
+        # 3. Compare against authoritative expected hash
+        # 4. On mismatch, raise explicit error (deserialization never occurs)
+        # 5. Rewind the same file handle
+        # 6. Pass that same verified file handle to torch.load()
+        if self.profile == CheckpointProfile.STAGE_C_15EP:
+            expected_hash = STAGE_C_EXPECTED_HASHES.get(canonical)
+            with open(checkpoint_path, "rb") as f:
+                actual_sha256 = compute_stream_sha256(f)
+                if expected_hash is not None:
+                    expected_clean = expected_hash.strip().lower()
+                    if actual_sha256 != expected_clean:
+                        raise ValueError(
+                            f"Checkpoint integrity verification failed for model '{canonical}' under profile '{self.profile.value}'!\n"
+                            f"  File Path:        {checkpoint_path}\n"
+                            f"  Expected SHA-256: {expected_clean}\n"
+                            f"  Actual SHA-256:   {actual_sha256}"
+                        )
+                f.seek(0)
+                checkpoint = torch.load(f, map_location=target_device, weights_only=False)
+        else:
+            with open(checkpoint_path, "rb") as f:
+                checkpoint = torch.load(f, map_location=target_device, weights_only=False)
+
         state_dict = checkpoint.get("model_state_dict", checkpoint)
         model.load_state_dict(state_dict)
         model.to(target_device)

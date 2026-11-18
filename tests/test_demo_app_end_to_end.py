@@ -11,10 +11,14 @@ from unittest.mock import MagicMock
 import numpy as np
 import torch
 
-from src.agent.models import ModelRegistry
+from src.agent.calibration import STAGE_C2_REFERENCE_TEMPERATURES
+from src.agent.models import CheckpointProfile, ModelRegistry
 from src.agent.policy import evaluate_slice_policy, extract_slice_prediction
 from src.agent.runner import InferenceAgent
 from src.agent.state import (
+    STAGE_C_PRIMARY_MODEL,
+    STAGE_C_SECONDARY_MODEL,
+    STAGE_C_TAU,
     AgentAction,
     AgentDecision,
     AgentState,
@@ -25,12 +29,13 @@ from src.agent.state import (
 from src.uncertainty.entropy import softmax_entropy
 from tools.demo_app import (
     compute_slice_dice_metrics,
-    create_policy_config_for_model,
     format_decision_badge_html,
     get_axial_context_predictions,
+    get_model_registry,
+    get_stage_c_agent,
     get_validation_cases,
-    load_calibrated_policy_config,
     load_case_volume,
+    should_display_healthy_slice_notice,
     validate_input_slice_tensor,
 )
 
@@ -70,20 +75,9 @@ class TestDemoAppEndToEndRealVolume(unittest.TestCase):
         cls.test_case = cls.val_cases[0]
         cls.image_vol, cls.mask_vol = load_case_volume(str(cls.test_case.case_dir))
         cls.device_str = "cuda" if torch.cuda.is_available() else "cpu"
-        cls.registry = ModelRegistry(default_device=cls.device_str)
-
-        base_cfg, _ = load_calibrated_policy_config(tau_threshold=0.35)
-        cls.policy_config = create_policy_config_for_model(
-            primary_model="resunet",
-            base_policy_config=base_cfg,
-            tau_threshold=0.35,
-        )
-        cls.agent = InferenceAgent(
-            registry=cls.registry,
-            primary_model="resunet",
-            config=cls.policy_config,
-            device=cls.registry.default_device,
-        )
+        cls.agent = get_stage_c_agent(cls.device_str)
+        cls.registry = cls.agent.registry
+        cls.policy_config = cls.agent.config
 
     def test_e2e_real_volume_tumor_slice_execution(self) -> None:
         """Run complete agent on an axial slice containing tumor."""
@@ -125,7 +119,12 @@ class TestDemoAppEndToEndRealVolume(unittest.TestCase):
         self.assertIn(decision.action, (AgentAction.ACCEPT, AgentAction.FALLBACK_SWITCH, AgentAction.FLAG_UNRELIABLE))
         self.assertIn(decision.selected_model, ("resunet", "unet_resnet34"))
         self.assertEqual(decision.final_mask.shape, (240, 240))
-        self.assertAlmostEqual(decision.calibrated_temperature, 2.8808, places=3)
+        expected_temperature = STAGE_C2_REFERENCE_TEMPERATURES[decision.selected_model]
+        self.assertAlmostEqual(
+            decision.calibrated_temperature,
+            expected_temperature,
+            places=6,
+        )
         self.assertGreater(len(decision.reasons), 0)
 
         # 4. Calibrated entropy map computation
@@ -150,6 +149,12 @@ class TestDemoAppEndToEndRealVolume(unittest.TestCase):
         # 6. HTML badge formatting
         html_badge = format_decision_badge_html(decision, tau=0.35, primary_model="ResUNet-2D")
         self.assertIn("ACTION:", html_badge)
+
+        # 7. Healthy-slice Dice interpretation notice check (tumor slice -> must NOT be displayed)
+        self.assertFalse(
+            should_display_healthy_slice_notice(decision.final_mask.cpu().numpy(), slice_gt_np),
+            "Healthy slice notice must not be displayed on a slice containing tumor ground truth.",
+        )
 
     def test_e2e_real_volume_boundary_slice_smoke(self) -> None:
         """Run complete agent on an anatomical boundary slice without ground-truth tumor (z=5).
@@ -201,6 +206,14 @@ class TestDemoAppEndToEndRealVolume(unittest.TestCase):
             self.assertGreaterEqual(decision.mean_uncertainty, 0.0)
             self.assertLessEqual(decision.mean_uncertainty, 1.0)
 
+        # Healthy-slice Dice interpretation notice check:
+        is_both_empty = bool((self.mask_vol[:, :, empty_z] == 0).all() and (decision.final_mask.cpu().numpy() == 0).all())
+        self.assertEqual(
+            should_display_healthy_slice_notice(decision.final_mask.cpu().numpy(), self.mask_vol[:, :, empty_z]),
+            is_both_empty,
+            "Healthy-slice notice display must strictly match whether both prediction and ground truth are empty.",
+        )
+
 
 class TestDeterministicEmptyPredictionPolicy(unittest.TestCase):
     """Deterministic, unconditional tests guaranteeing empty primary predictions and policy enforcement."""
@@ -213,15 +226,15 @@ class TestDeterministicEmptyPredictionPolicy(unittest.TestCase):
         self.candidate_empty = _make_prediction("unet_resnet34", dominant_class=0)
 
         self.config = PolicyConfig(
-            high_uncertainty_threshold=0.35,
+            high_uncertainty_threshold=STAGE_C_TAU,
             enable_empty_prediction_fallback=True,
-            fallback_priority=("unet_resnet34",),
+            fallback_priority=(STAGE_C_SECONDARY_MODEL,),
             enable_axial_context=True,
             axial_context_window=2,
             min_neighbor_foreground_slices=1,
             fallback_when_context_unavailable=False,
-            primary_temperature=2.8808,
-            candidate_temperatures={"unet_resnet34": 2.6267},
+            primary_temperature=STAGE_C2_REFERENCE_TEMPERATURES["resunet"],
+            candidate_temperatures={STAGE_C_SECONDARY_MODEL: STAGE_C2_REFERENCE_TEMPERATURES["unet_resnet34"]},
         )
 
     def test_deterministic_empty_prediction_never_synthetic_zero(self) -> None:

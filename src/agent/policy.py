@@ -130,6 +130,14 @@ def evaluate_slice_policy(
                         metadata={
                             "fallback_attempted": True,
                             "fallback_suppressed_by_context": True,
+                            "original_primary_model": primary.model_name,
+                            "primary_model": primary.model_name,
+                            "primary_temperature": config.primary_temperature,
+                            "primary_has_empty_foreground": True,
+                            "primary_uncertainty": None,
+                            "axial_context_evaluated": True,
+                            "axial_support_confirmed": False,
+                            "fallback_invoked": False,
                         },
                         axial_context=ctx,
                         calibrated_temperature=config.primary_temperature,
@@ -171,13 +179,51 @@ def evaluate_slice_policy(
                     mean_uncertainty=selected_candidate.mean_foreground_entropy,
                     has_empty_foreground=False,
                     reasons=tuple(reasons),
-                    metadata={"original_primary_model": primary.model_name},
+                    metadata={
+                        "original_primary_model": primary.model_name,
+                        "primary_model": primary.model_name,
+                        "primary_temperature": config.primary_temperature,
+                        "primary_has_empty_foreground": True,
+                        "primary_uncertainty": None,
+                        "axial_context_evaluated": state.axial_context is not None,
+                        "axial_support_confirmed": bool(
+                            state.axial_context
+                            and state.axial_context.foreground_neighbors_count >= config.min_neighbor_foreground_slices
+                        ),
+                        "fallback_invoked": True,
+                        "secondary_model": selected_candidate.model_name,
+                        "secondary_temperature": config.candidate_temperatures.get(selected_candidate.model_name, 1.0),
+                        "secondary_has_empty_foreground": False,
+                        "secondary_uncertainty": selected_candidate.mean_foreground_entropy,
+                    },
                     axial_context=state.axial_context,
                     calibrated_temperature=config.candidate_temperatures.get(selected_candidate.model_name, 1.0),
                     is_human_review_recommended=False,
                 )
 
             reasons.append("no_viable_fallback_candidate_with_foreground")
+
+        fallback_meta: dict = {
+            "fallback_attempted": config.enable_empty_prediction_fallback,
+            "original_primary_model": primary.model_name,
+            "primary_model": primary.model_name,
+            "primary_temperature": config.primary_temperature,
+            "primary_has_empty_foreground": True,
+            "primary_uncertainty": None,
+            "axial_context_evaluated": state.axial_context is not None,
+            "axial_support_confirmed": bool(
+                state.axial_context
+                and state.axial_context.foreground_neighbors_count >= config.min_neighbor_foreground_slices
+            ),
+            "fallback_invoked": bool(state.candidate_predictions),
+        }
+        if state.candidate_predictions:
+            first_cand_name = next(iter(state.candidate_predictions))
+            first_cand = state.candidate_predictions[first_cand_name]
+            fallback_meta["secondary_model"] = first_cand_name
+            fallback_meta["secondary_temperature"] = config.candidate_temperatures.get(first_cand_name, 1.0)
+            fallback_meta["secondary_has_empty_foreground"] = first_cand.has_empty_foreground
+            fallback_meta["secondary_uncertainty"] = first_cand.mean_foreground_entropy
 
         return AgentDecision(
             action=AgentAction.FLAG_UNRELIABLE,
@@ -186,7 +232,7 @@ def evaluate_slice_policy(
             mean_uncertainty=None,
             has_empty_foreground=True,
             reasons=tuple(reasons),
-            metadata={"fallback_attempted": config.enable_empty_prediction_fallback},
+            metadata=fallback_meta,
             axial_context=state.axial_context,
             calibrated_temperature=config.primary_temperature,
             is_human_review_recommended=True,
@@ -257,6 +303,17 @@ def evaluate_slice_policy(
                 mean_uncertainty=primary.mean_foreground_entropy,
                 has_empty_foreground=False,
                 reasons=tuple(reasons),
+                metadata={
+                    "original_primary_model": primary.model_name,
+                    "primary_model": primary.model_name,
+                    "primary_temperature": config.primary_temperature,
+                    "primary_has_empty_foreground": False,
+                    "primary_uncertainty": primary.mean_foreground_entropy,
+                    "axial_context_evaluated": state.axial_context is not None,
+                    "axial_support_confirmed": False,
+                    "fallback_invoked": False,
+                    "high_uncertainty_flagged": True,
+                },
                 axial_context=state.axial_context,
                 calibrated_temperature=config.primary_temperature,
                 is_human_review_recommended=True,
@@ -271,6 +328,16 @@ def evaluate_slice_policy(
         mean_uncertainty=primary.mean_foreground_entropy,
         has_empty_foreground=False,
         reasons=tuple(reasons),
+        metadata={
+            "original_primary_model": primary.model_name,
+            "primary_model": primary.model_name,
+            "primary_temperature": config.primary_temperature,
+            "primary_has_empty_foreground": False,
+            "primary_uncertainty": primary.mean_foreground_entropy,
+            "axial_context_evaluated": state.axial_context is not None,
+            "axial_support_confirmed": False,
+            "fallback_invoked": False,
+        },
         axial_context=state.axial_context,
         calibrated_temperature=config.primary_temperature,
         is_human_review_recommended=False,

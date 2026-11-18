@@ -23,14 +23,31 @@ import numpy as np
 import streamlit as st
 import torch
 
+from src.agent.calibration import (
+    DEFAULT_C2_CALIBRATION_JSON,
+    STAGE_C2_REFERENCE_TEMPERATURES,
+    StageCCalibrationConfig,
+    load_stage_c_calibration,
+)
 from src.agent.models import (
     CANDIDATE_MODEL_NAMES,
     CANONICAL_MODEL_NAMES,
+    CheckpointProfile,
     ModelRegistry,
     normalize_model_name,
 )
-from src.agent.runner import InferenceAgent
+from src.agent.runner import (
+    InferenceAgent,
+    create_stage_c_agent,
+    create_stage_c_policy_config,
+)
 from src.agent.state import (
+    STAGE_C_ALLOWED_MODELS,
+    STAGE_C_AXIAL_CONTEXT_RADIUS,
+    STAGE_C_MIN_NEIGHBOR_FOREGROUND_SLICES,
+    STAGE_C_PRIMARY_MODEL,
+    STAGE_C_SECONDARY_MODEL,
+    STAGE_C_TAU,
     AgentAction,
     AgentDecision,
     AxialContextSummary,
@@ -113,117 +130,64 @@ def validate_input_slice_tensor(image: Any) -> None:
 # Calibration Configuration Loading
 # -----------------------------------------------------------------------------
 def load_calibrated_policy_config(
-    config_path: Path | None = None,
-    tau_threshold: float = 0.35,
+    calib_path: Path | str | None = None,
+    manifest_path: Path | str | None = None,
+    tau_threshold: float = STAGE_C_TAU,
     enable_empty_fallback: bool = True,
     enable_axial_context: bool = True,
-    axial_context_window: int = 2,
-    min_neighbor_foreground_slices: int = 1,
+    axial_context_window: int = STAGE_C_AXIAL_CONTEXT_RADIUS,
+    min_neighbor_foreground_slices: int = STAGE_C_MIN_NEIGHBOR_FOREGROUND_SLICES,
 ) -> tuple[PolicyConfig, dict[str, Any]]:
-    """Load policy and temperature scaling parameters from empirical calibration artifacts."""
-    candidate_paths = [
-        config_path,
-        PROJECT_ROOT / "results" / "gate6a_remediation_v1" / "calibration_parameters.json",
-        PROJECT_ROOT / "results" / "gate6a_reliability_calibration" / "calibration_parameters.json",
-    ]
-    resolved_path: Path | None = None
-    for p in candidate_paths:
-        if p is not None and p.exists():
-            resolved_path = p
-            break
+    """Load policy and temperature scaling parameters strictly from verified Stage C2 calibration artifacts.
 
-    # Verified Gate 6A empirical temperatures (ResUNet-2D and UNetResNet34)
-    primary_temp = 2.8807828426361084
-    candidate_temps = {"unet_resnet34": 2.6266958713531494}
-    fallback_priority = ("unet_resnet34",)
-    source_info = "Verified Gate 6A Empirical Temperatures (Default)"
-
-    if resolved_path is not None:
-        try:
-            with open(resolved_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            frozen = data.get("frozen_policy_configuration", {})
-            if "primary_temperature" in frozen:
-                primary_temp = float(frozen["primary_temperature"])
-            if "candidate_temperatures" in frozen and isinstance(frozen["candidate_temperatures"], dict):
-                candidate_temps = {k: float(v) for k, v in frozen["candidate_temperatures"].items()}
-            source_info = f"Empirical artifact: {resolved_path.name}"
-        except Exception as e:
-            source_info = f"Fallback defaults (error reading {resolved_path.name}: {e})"
-
-    policy_config = PolicyConfig(
-        high_uncertainty_threshold=tau_threshold,
-        enable_empty_prediction_fallback=enable_empty_fallback,
-        fallback_priority=fallback_priority,
-        num_classes=4,
-        enable_axial_context=enable_axial_context,
+    Strictly fails closed: if calibration loading or cryptographic verification fails,
+    an exception is raised immediately. Hardcoded fallback substitution is prohibited.
+    """
+    calib_cfg = load_stage_c_calibration(
+        calib_path=calib_path,
+        manifest_path=manifest_path,
+        verify_hashes=True,
+    )
+    policy_config = create_stage_c_policy_config(
+        calibration_config=calib_cfg,
+        tau=tau_threshold,
         axial_context_window=axial_context_window,
         min_neighbor_foreground_slices=min_neighbor_foreground_slices,
-        fallback_when_context_unavailable=False,
-        primary_temperature=primary_temp,
-        candidate_temperatures=candidate_temps,
     )
     metadata = {
-        "source": source_info,
-        "resolved_path": str(resolved_path) if resolved_path else "In-code calibrated constants",
-        "primary_temperature": primary_temp,
-        "candidate_temperatures": candidate_temps,
+        "source": f"Empirical Stage C2 Artifact (SHA-256: {calib_cfg.calibration_json_sha256[:16]}...)",
+        "resolved_path": str(calib_path or DEFAULT_C2_CALIBRATION_JSON),
+        "primary_temperature": policy_config.primary_temperature,
+        "candidate_temperatures": dict(policy_config.candidate_temperatures),
+        "calibration_config": calib_cfg,
     }
     return policy_config, metadata
-
-
-def create_policy_config_for_model(
-    primary_model: str,
-    base_policy_config: PolicyConfig,
-    tau_threshold: float,
-) -> PolicyConfig:
-    """Specialize PolicyConfig temperatures and fallback priorities for the selected primary model."""
-    canonical = normalize_model_name(primary_model)
-
-    temp_map = {
-        "resunet": 2.8807828426361084,
-        "unet_resnet34": 2.6266958713531494,
-        "unet": 1.0,
-        "unetpp": 1.0,
-        "attention_unet": 1.0,
-    }
-    if base_policy_config.primary_temperature > 0.0:
-        temp_map["resunet"] = base_policy_config.primary_temperature
-    for k, v in base_policy_config.candidate_temperatures.items():
-        temp_map[normalize_model_name(k)] = v
-
-    primary_t = temp_map.get(canonical, 1.0)
-    cand_temps = {k: v for k, v in temp_map.items() if k != canonical}
-
-    if canonical == "resunet":
-        fallback_priority = ("unet_resnet34", "unetpp", "attention_unet", "unet")
-    elif canonical == "unet_resnet34":
-        fallback_priority = ("resunet", "unetpp", "attention_unet", "unet")
-    else:
-        fallback_priority = ("resunet", "unet_resnet34")
-
-    return PolicyConfig(
-        high_uncertainty_threshold=tau_threshold,
-        enable_empty_prediction_fallback=base_policy_config.enable_empty_prediction_fallback,
-        fallback_priority=fallback_priority,
-        num_classes=4,
-        enable_axial_context=base_policy_config.enable_axial_context,
-        axial_context_window=base_policy_config.axial_context_window,
-        min_neighbor_foreground_slices=base_policy_config.min_neighbor_foreground_slices,
-        fallback_when_context_unavailable=base_policy_config.fallback_when_context_unavailable,
-        primary_temperature=primary_t,
-        candidate_temperatures=cand_temps,
-    )
 
 
 # -----------------------------------------------------------------------------
 # Caching Functions & Dataset Discovery
 # -----------------------------------------------------------------------------
-@st.cache_resource(show_spinner="Initializing ModelRegistry and scanning checkpoints...")
-def get_model_registry(device_str: str) -> ModelRegistry:
-    """Instantiate and cache ModelRegistry on target execution device."""
+@st.cache_resource(show_spinner="Initializing Stage C ModelRegistry (15-Epoch)...")
+def get_model_registry(
+    device_str: str = "cpu",
+    profile: CheckpointProfile = CheckpointProfile.STAGE_C_15EP,
+) -> ModelRegistry:
+    """Instantiate and cache ModelRegistry with CheckpointProfile.STAGE_C_15EP on target execution device."""
+    if profile != CheckpointProfile.STAGE_C_15EP:
+        raise ValueError(
+            f"Stage C demo application strictly requires CheckpointProfile.STAGE_C_15EP, "
+            f"got profile '{profile.value}'. Silent fallback to legacy profiles is prohibited."
+        )
     device = torch.device(device_str if torch.cuda.is_available() and device_str == "cuda" else "cpu")
-    return ModelRegistry(default_device=device)
+    return ModelRegistry(profile=CheckpointProfile.STAGE_C_15EP, default_device=device)
+
+
+@st.cache_resource(show_spinner="Initializing Stage C Reliability-Aware AI Agent...")
+def get_stage_c_agent(device_str: str = "cpu") -> InferenceAgent:
+    """Instantiate and cache the authoritative Stage C reliability agent."""
+    device = torch.device(device_str if torch.cuda.is_available() and device_str == "cuda" else "cpu")
+    registry = get_model_registry(device_str=device_str, profile=CheckpointProfile.STAGE_C_15EP)
+    return create_stage_c_agent(registry=registry, device=device)
 
 
 @st.cache_data(show_spinner="Loading 105-case validation evaluation cohort...")
@@ -399,36 +363,107 @@ def compute_slice_dice_metrics(pred: np.ndarray, gt: np.ndarray) -> dict[str, fl
     }
 
 
-def format_decision_badge_html(decision: AgentDecision, tau: float, primary_model: str) -> str:
-    """Format structured HTML badge for the agent's categorical action."""
+# -----------------------------------------------------------------------------
+# Non-Tumor Slice Interpretation Notice (Empty-Empty Agreement)
+# -----------------------------------------------------------------------------
+NON_TUMOR_SLICE_DICE_NOTICE: str = (
+    "Both ground-truth and predicted masks are empty on this slice. "
+    "Dice = 1.000 reflects empty-empty agreement, not demonstrated tumor segmentation accuracy."
+)
+# Backward-compatibility alias
+HEALTHY_SLICE_DICE_NOTICE: str = NON_TUMOR_SLICE_DICE_NOTICE
+
+
+def should_display_healthy_slice_notice(pred: np.ndarray, gt: np.ndarray) -> bool:
+    """Determine whether the non-tumor slice Dice interpretation notice should be displayed.
+
+    Returns True if and only if BOTH conditions are met:
+        1. Ground-truth mask contains zero foreground tumor voxels.
+        2. Predicted mask contains zero foreground tumor voxels.
+    """
+    return bool(not (gt > 0).any() and not (pred > 0).any())
+
+
+# Semantic alias
+should_display_non_tumor_slice_notice = should_display_healthy_slice_notice
+
+
+def format_healthy_slice_notice_html(
+    notice_text: str = NON_TUMOR_SLICE_DICE_NOTICE,
+) -> str:
+    """Format structured HTML notice for empty-empty Dice agreement on non-tumor slices."""
+    return (
+        f"<div class='healthy-slice-notice' style='background-color: #1e293b; color: #e2e8f0; "
+        f"border-left: 4px solid #38bdf8; border: 1px solid #334155; padding: 10px 14px; "
+        f"border-radius: 4px; font-size: 0.91rem; margin-top: 10px; margin-bottom: 12px;'>"
+        f"ℹ️ <b>Non-Tumor Slice Metric Notice:</b> {notice_text}"
+        f"</div>"
+    )
+
+
+format_non_tumor_slice_notice_html = format_healthy_slice_notice_html
+
+
+def format_decision_badge_html(
+    decision: AgentDecision,
+    tau: float = STAGE_C_TAU,
+    primary_model: str = "ResUNet-2D",
+) -> str:
+    """Format structured HTML badge for the agent's categorical action with Stage C3 v1.1.3 audit metadata."""
     action = decision.action
     if action == AgentAction.ACCEPT:
         h_str = f"{decision.mean_uncertainty:.4f}" if decision.mean_uncertainty is not None else "N/A"
         return (
             f"<div style='background-color: #2ca02c; color: white; padding: 12px 18px; border-radius: 6px; "
             f"font-weight: bold; font-size: 1.1rem; margin-bottom: 14px;'>"
-            f"✅ <b>ACTION: ACCEPT</b> &nbsp;|&nbsp; Autonomous Retention (H = {h_str} ≤ τ = {tau:.2f}) &nbsp;|&nbsp; "
+            f"✅ <b>ACTION: ACCEPT</b> &nbsp;|&nbsp; Autonomous Retention (H = {h_str} < τ = {tau:.2f}) &nbsp;|&nbsp; "
             f"Selected Model: <code>{decision.selected_model}</code> (T* = {decision.calibrated_temperature:.4f})"
             f"</div>"
         )
     elif action == AgentAction.FALLBACK_SWITCH:
         h_str = f"{decision.mean_uncertainty:.4f}" if decision.mean_uncertainty is not None else "N/A"
-        return (
+        has_warning = (
+            "candidate_high_uncertainty_warning" in decision.reasons
+            or decision.metadata.get("candidate_high_uncertainty_warning", False)
+        )
+        badge = (
             f"<div style='background-color: #ff7f0e; color: white; padding: 12px 18px; border-radius: 6px; "
-            f"font-weight: bold; font-size: 1.1rem; margin-bottom: 14px;'>"
+            f"font-weight: bold; font-size: 1.1rem; margin-bottom: 8px;'>"
             f"🔄 <b>ACTION: FALLBACK_SWITCH</b> &nbsp;|&nbsp; Model Substitution (<code>{primary_model}</code> ➔ "
             f"<code>{decision.selected_model}</code>) &nbsp;|&nbsp; Candidate H = {h_str} &nbsp;|&nbsp; "
             f"Axial Context Continuity Confirmed"
             f"</div>"
         )
+        if has_warning:
+            badge += (
+                f"<div style='background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; "
+                f"padding: 10px 14px; border-radius: 5px; font-size: 0.93rem; margin-bottom: 14px;'>"
+                f"⚠️ <b>Candidate High Uncertainty Notice:</b> Candidate model <code>{decision.selected_model}</code> "
+                f"predictive entropy (H = {h_str}) meets or exceeds operating threshold (τ = {tau:.2f}). "
+                f"Per Stage C3 v1.1.3 scientific policy, FALLBACK_SWITCH is preserved to prevent false-negative lesion omission, "
+                f"but specialist visual confirmation of tumor boundaries is recommended."
+                f"</div>"
+            )
+        else:
+            badge += "<div style='margin-bottom: 6px;'></div>"
+        return badge
     else:  # AgentAction.FLAG_UNRELIABLE
-        reason_desc = "Uncertainty exceeds operating threshold" if not decision.has_empty_foreground else "Complete empty prediction warning"
+        reason_desc = (
+            "Uncertainty exceeds operating threshold"
+            if not decision.has_empty_foreground
+            else "Complete empty prediction warning"
+        )
         h_str = f"{decision.mean_uncertainty:.4f}" if decision.mean_uncertainty is not None else "None (Empty)"
         return (
             f"<div style='background-color: #d62728; color: white; padding: 12px 18px; border-radius: 6px; "
-            f"font-weight: bold; font-size: 1.1rem; margin-bottom: 14px;'>"
+            f"font-weight: bold; font-size: 1.1rem; margin-bottom: 8px;'>"
             f"⚠️ <b>ACTION: FLAG_UNRELIABLE</b> &nbsp;|&nbsp; Human Specialist Review Required &nbsp;|&nbsp; "
             f"{reason_desc} (H = {h_str}) &nbsp;|&nbsp; Model: <code>{decision.selected_model}</code>"
+            f"</div>"
+            f"<div style='background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; "
+            f"padding: 9px 14px; border-radius: 5px; font-size: 0.90rem; margin-bottom: 14px;'>"
+            f"🚩 <b>Clinical Notice:</b> An unreliable prediction indicates statistical prediction uncertainty under the "
+            f"reliability agent's policy, NOT a clinically confirmed absence or presence of pathology. Specialist neuroradiologist review is required."
             f"</div>"
         )
 
@@ -463,6 +498,17 @@ def main() -> None:
             font-size: 0.92rem;
             margin-bottom: 16px;
         }
+        .healthy-slice-notice {
+            background-color: #1e293b;
+            color: #e2e8f0;
+            border-left: 4px solid #38bdf8;
+            border: 1px solid #334155;
+            padding: 10px 14px;
+            border-radius: 4px;
+            font-size: 0.91rem;
+            margin-top: 10px;
+            margin-bottom: 12px;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -472,7 +518,7 @@ def main() -> None:
     st.title("🧠 Reliability-Aware AI Agent for Brain Tumor Segmentation")
     st.caption(
         "B.Tech CSE Major Project Research Showcase — Primary Champion: ResUNet-2D (15-Epoch Scaled, 8.11M Parameters) "
-        "with Calibrated Selective Prediction Triage (T* = 2.8808, τ = 0.35) and UNetResNet34 Axial Fallback on BraTS 2023 GLI"
+        "with Calibrated Selective Prediction Triage (T* = 2.880459, τ = 0.35) and UNetResNet34 Axial Fallback on BraTS 2023 GLI"
     )
 
     # Mandatory Academic / Clinical Transparency Disclaimer
@@ -499,20 +545,15 @@ def main() -> None:
         help="Executes PyTorch neural network inference on GPU (CUDA) or CPU.",
     )
 
-    # Model Selection
-    model_options = {
-        "resunet": "ResUNet-2D (Primary Champion, 15 ep, T*=2.8808)",
-        "unet_resnet34": "UNetResNet34 (Comparison/Fallback, 15 ep, T*=2.6267)",
-        "unet": "Standard U-Net (5 ep baseline, T=1.0)",
-        "attention_unet": "Attention U-Net (5 ep baseline, T=1.0)",
-        "unetpp": "U-Net++ (5 ep baseline, T=1.0)",
-    }
-    selected_model_key = st.sidebar.selectbox(
-        "Primary Segmentation Model",
-        options=list(model_options.keys()),
-        format_func=lambda k: model_options[k],
-        index=0,
-        help="ResUNet-2D is the project champion architecture with lowest post-calibration ECE.",
+    # Stage C Multi-Model Reliability Agent Architecture Specification
+    st.sidebar.markdown("### 🤖 Stage C Multi-Model Reliability Agent")
+    st.sidebar.markdown(
+        "- **Primary Champion:** `ResUNet-2D` (15 ep, T* = 2.8805)\n"
+        "- **Secondary Fallback:** `UNetResNet34` (15 ep, T* = 2.6261)\n"
+        "- **Decision Policy:** `Stage C3 v1.1.3 (Frozen)`\n"
+        "- **Entropy Threshold (τ):** `0.35`\n"
+        "- **Axial Context Window (k):** `2` (±2 slices, N_min = 1)\n"
+        "- **Checkpoint Profile:** `STAGE_C_15EP`"
     )
 
     # Load 105-case validation evaluation cohort strictly from data/extracted_archive
@@ -540,7 +581,7 @@ def main() -> None:
         return
 
     fg_slice_indices = [z for z in range(155) if (mask_vol[:, :, z] > 0).any()]
-    tumor_range_str = f"Slices {min(fg_slice_indices)}–{max(fg_slice_indices)}" if fg_slice_indices else "None (Healthy)"
+    tumor_range_str = f"Slices {min(fg_slice_indices)}–{max(fg_slice_indices)}" if fg_slice_indices else "None (Non-Tumor)"
     st.sidebar.markdown(f"**Patient Tumor Profile:** `{tumor_range_str}` ({len(fg_slice_indices)} tumor slices)")
 
     default_z = fg_slice_indices[len(fg_slice_indices) // 2] if fg_slice_indices else 72
@@ -551,21 +592,6 @@ def main() -> None:
         value=default_z,
         step=1,
         help="Select axial slice index from the 155-slice 3D volume.",
-    )
-
-    triage_threshold = st.sidebar.slider(
-        "Selective Prediction Threshold (τ)",
-        min_value=0.10,
-        max_value=0.60,
-        value=0.35,
-        step=0.01,
-        help="Slices with mean foreground calibrated entropy H > τ are flagged for specialist referral.",
-    )
-
-    enable_context_toggle = st.sidebar.checkbox(
-        "Enable Axial Context Verification",
-        value=True,
-        help="Inspects adjacent axial slices [z - 2, z + 2] to verify spatial lesion continuity before fallback.",
     )
 
     overlay_alpha = st.sidebar.slider(
@@ -586,35 +612,25 @@ def main() -> None:
     )
 
     # -------------------------------------------------------------------------
-    # Policy Configuration & Model Registry Initialization
+    # Stage C Agent Initialization & Verification Handshake
     # -------------------------------------------------------------------------
-    base_policy_cfg, calib_meta = load_calibrated_policy_config(
-        tau_threshold=triage_threshold,
-        enable_empty_fallback=True,
-        enable_axial_context=enable_context_toggle,
-        axial_context_window=2,
-        min_neighbor_foreground_slices=1,
-    )
-    policy_config = create_policy_config_for_model(
-        primary_model=selected_model_key,
-        base_policy_config=base_policy_cfg,
-        tau_threshold=triage_threshold,
-    )
-
-    registry = get_model_registry(device_selection)
-    agent = InferenceAgent(
-        registry=registry,
-        primary_model=selected_model_key,
-        config=policy_config,
-        device=registry.default_device,
-    )
+    try:
+        agent = get_stage_c_agent(device_selection)
+    except Exception as e:
+        st.error(
+            f"❌ **Stage C Reliability Agent Initialization Failed:** {e}\n\n"
+            f"Strict checkpoint cryptographic verification (SHA-256) or Stage C2 calibration "
+            f"manifest provenance validation failed. Execution is halted immediately to prevent "
+            f"unverified model inference or silent fallback to legacy configurations."
+        )
+        return
 
     # -------------------------------------------------------------------------
     # Slice Tensor Extraction & Verification
     # -------------------------------------------------------------------------
     slice_img_np = image_vol[:, :, :, selected_z]
     slice_gt_np = mask_vol[:, :, selected_z]
-    slice_img_t = torch.from_numpy(slice_img_np).unsqueeze(0).to(registry.default_device)
+    slice_img_t = torch.from_numpy(slice_img_np).unsqueeze(0).to(agent.device)
 
     # Explicit input contract validation
     try:
@@ -623,41 +639,53 @@ def main() -> None:
         st.error(f"Input Interface Contract Violation: {e}")
         return
 
-    # Compute neighboring axial predictions for spatial continuity summary
-    neighbor_predictions: dict[int, SlicePrediction] = {}
-    if policy_config.enable_axial_context:
-        neighbor_predictions = get_axial_context_predictions(
-            registry=registry,
-            primary_model=selected_model_key,
-            image_vol=image_vol,
-            center_z=selected_z,
-            window_k=policy_config.axial_context_window,
-            total_slices=155,
-            device=registry.default_device,
-            temperature=policy_config.primary_temperature,
-        )
+    # -------------------------------------------------------------------------
+    # Runtime Inference & Uncertainty Map Generation
+    # -------------------------------------------------------------------------
+    try:
+        # Compute neighboring axial predictions for spatial continuity summary
+        neighbor_predictions: dict[int, SlicePrediction] = {}
+        if agent.config.enable_axial_context:
+            neighbor_predictions = get_axial_context_predictions(
+                registry=agent.registry,
+                primary_model=agent.primary_model,
+                image_vol=image_vol,
+                center_z=selected_z,
+                window_k=agent.config.axial_context_window,
+                total_slices=155,
+                device=agent.device,
+                temperature=agent.primary_temperature,
+            )
 
-    # Execute Autonomous Research Agent
-    with st.spinner("Executing Reliability-Aware AI Agent policy..."):
-        decision: AgentDecision = agent.run_slice(
+        # Execute Autonomous Research Agent
+        with st.spinner("Executing Stage C Reliability-Aware AI Agent policy..."):
+            decision: AgentDecision = agent.run_slice(
+                image=slice_img_t,
+                case_id=selected_case.case_id,
+                slice_index=selected_z,
+                case_primary_predictions=neighbor_predictions,
+                case_total_slices=155,
+            )
+
+        # Obtain calibrated entropy map for the model selected by the agent
+        selected_pred = agent.registry.predict_slice(
+            model_name=decision.selected_model,
             image=slice_img_t,
-            case_id=selected_case.case_id,
-            slice_index=selected_z,
-            case_primary_predictions=neighbor_predictions,
-            case_total_slices=155,
+            device=agent.device,
+            temperature=decision.calibrated_temperature,
         )
-
-    # Obtain calibrated entropy map for the model selected by the agent
-    selected_pred = registry.predict_slice(
-        model_name=decision.selected_model,
-        image=slice_img_t,
-        device=registry.default_device,
-        temperature=decision.calibrated_temperature,
-    )
-    # Normalized predictive entropy H(p*) in [0, 1]
-    entropy_tensor = softmax_entropy(selected_pred.logits)
-    entropy_np = entropy_tensor.squeeze(0).cpu().numpy()
-    pred_mask_np = decision.final_mask.cpu().numpy()
+        # Normalized predictive entropy H(p*) in [0, 1]
+        entropy_tensor = softmax_entropy(selected_pred.logits)
+        entropy_np = entropy_tensor.squeeze(0).cpu().numpy()
+        pred_mask_np = decision.final_mask.cpu().numpy()
+    except Exception as e:
+        st.error(
+            f"❌ **Runtime Inference Failed:** {e}\n\n"
+            f"An error occurred during neural network inference, axial neighbor context evaluation, "
+            f"or calibrated predictive entropy generation. Rendering of the prediction mask and "
+            f"agent decision has been aborted to prevent silent model substitution or corrupt outputs."
+        )
+        return
 
     # -------------------------------------------------------------------------
     # Section 1: Multi-Parametric MRI Modality Viewer
@@ -683,8 +711,8 @@ def main() -> None:
     # Display Categorical Action Badge
     decision_html = format_decision_badge_html(
         decision=decision,
-        tau=triage_threshold,
-        primary_model=model_options[selected_model_key],
+        tau=agent.config.high_uncertainty_threshold,
+        primary_model="ResUNet-2D",
     )
     st.markdown(decision_html, unsafe_allow_html=True)
 
@@ -694,14 +722,14 @@ def main() -> None:
         gt_overlay = overlay_mask_on_grayscale(slice_img_np[1], slice_gt_np, alpha=overlay_alpha)
         st.image(gt_overlay, use_container_width=True)
         gt_fg_count = int((slice_gt_np > 0).sum())
-        st.caption(f"Lesion Size: **{gt_fg_count:,} voxels** ({'Tumor Present' if gt_fg_count > 0 else 'Healthy Slice'})")
+        st.caption(f"Lesion Size: **{gt_fg_count:,} voxels** ({'Tumor Present' if gt_fg_count > 0 else 'Non-Tumor Slice'})")
 
     with seg_cols[1]:
         st.markdown(f"**Agent Output Mask (`{decision.selected_model}`)**")
         p_overlay = overlay_mask_on_grayscale(slice_img_np[1], pred_mask_np, alpha=overlay_alpha)
         st.image(p_overlay, use_container_width=True)
         p_fg_count = int((pred_mask_np > 0).sum())
-        model_role = "Primary Champion" if decision.selected_model == selected_model_key else "Axial Fallback Candidate"
+        model_role = "Primary Champion" if decision.selected_model == agent.primary_model else "Axial Fallback Candidate"
         st.caption(f"Predicted Size: **{p_fg_count:,} voxels** ({model_role}, T* = {decision.calibrated_temperature:.4f})")
 
     with seg_cols[2]:
@@ -725,19 +753,26 @@ def main() -> None:
 
     card_col1, card_col2 = st.columns(2)
 
+    calib_source = (
+        f"Stage C2 c2_calibration_v1 (SHA-256: {agent.calibration_config.calibration_json_sha256[:16]}...)"
+        if agent.calibration_config
+        else "Authoritative Stage C2 Reference Temperatures"
+    )
+
     with card_col1:
         st.markdown("#### 📋 Action Summary & Execution Parameters")
         st.markdown(
             f"- **Agent Categorical Action:** `{decision.action.value}`\n"
             f"- **Selected Output Model:** `{decision.selected_model}`\n"
-            f"- **Configured Primary Model:** `{selected_model_key}`\n"
-            f"- **Calibrated Temperature (T*):** `{decision.calibrated_temperature:.4f}`\n"
-            f"- **Operating Threshold (τ):** `{triage_threshold:.2f}`\n"
+            f"- **Primary Champion Model:** `{agent.primary_model}` (ResUNet-2D, T* = {agent.primary_temperature:.4f})\n"
+            f"- **Secondary Fallback Model:** `{STAGE_C_SECONDARY_MODEL}` (UNetResNet34, T* = {agent.config.candidate_temperatures.get(STAGE_C_SECONDARY_MODEL, 2.6261):.4f})\n"
+            f"- **Selected Calibrated Temperature (T*):** `{decision.calibrated_temperature:.4f}`\n"
+            f"- **Operating Threshold (τ):** `{agent.config.high_uncertainty_threshold:.2f}`\n"
             f"- **Mean Foreground Entropy (H):** `{decision.mean_uncertainty:.4f}`"
             if decision.mean_uncertainty is not None
             else f"- **Mean Foreground Entropy (H):** `N/A (Empty Foreground)`\n"
             f"- **Specialist Review Recommended:** `{'YES (Referred)' if decision.is_human_review_recommended else 'NO (Retained)'}\n"
-            f"- **Calibration Provenance:** `{calib_meta['source']}`"
+            f"- **Calibration Provenance:** `{calib_source}`"
         )
 
     with card_col2:
@@ -749,7 +784,7 @@ def main() -> None:
         if decision.axial_context is not None:
             ctx = decision.axial_context
             st.markdown(
-                f"**Axial Context Window (Radius k={policy_config.axial_context_window}):**\n"
+                f"**Axial Context Window (Radius k={agent.config.axial_context_window}):**\n"
                 f"- Evaluated Neighbors: **{ctx.evaluated_neighbors_count}**\n"
                 f"- Foreground Neighbors: **{ctx.foreground_neighbors_count}**\n"
                 f"- Empty Neighbors: **{ctx.empty_neighbors_count}**\n"
@@ -774,27 +809,48 @@ def main() -> None:
     with m_col4:
         st.metric(
             label="Macro Foreground Dice",
-            value=f"{slice_dice['macro_fg_dice']:.3f}" if not np.isnan(slice_dice['macro_fg_dice']) else "N/A (Healthy)",
+            value=f"{slice_dice['macro_fg_dice']:.3f}" if not np.isnan(slice_dice['macro_fg_dice']) else "N/A (Non-Tumor Slice)",
         )
+
+    # Explanatory notice for empty-empty agreement on healthy slices
+    if should_display_healthy_slice_notice(pred_mask_np, slice_gt_np):
+        st.markdown(format_healthy_slice_notice_html(), unsafe_allow_html=True)
 
     # Viva Demonstration Explanation
     if decision.action == AgentAction.ACCEPT:
         st.success(
             f"**Autonomous Retention Rationale:** The primary model output satisfies all reliability criteria. "
             f"Calibrated foreground predictive entropy ({decision.mean_uncertainty:.4f}) is strictly below the operating "
-            f"threshold (τ = {triage_threshold:.2f}). Segmentation exhibits strong confidence gradients and is retained for volumetric measurement."
+            f"threshold (τ = {agent.config.high_uncertainty_threshold:.2f}). Segmentation exhibits strong confidence gradients and is retained for volumetric measurement."
         )
     elif decision.action == AgentAction.FALLBACK_SWITCH:
+        has_cand_warning = (
+            "candidate_high_uncertainty_warning" in decision.reasons
+            or decision.metadata.get("candidate_high_uncertainty_warning", False)
+        )
+        warning_note = (
+            f" **Note:** Candidate model predictive entropy (H = {decision.mean_uncertainty:.4f}) meets or exceeds operating "
+            f"threshold (τ = {agent.config.high_uncertainty_threshold:.2f}). Per Stage C3 v1.1.3 scientific policy, FALLBACK_SWITCH is retained to avoid "
+            f"false-negative tumor omission, but specialist visual boundary confirmation is advised."
+            if has_cand_warning and decision.mean_uncertainty is not None
+            else ""
+        )
         st.info(
             f"**Axial Context Fallback Rationale:** The primary model predicted zero foreground voxels on slice z={selected_z}. "
             f"However, neighboring axial slices confirmed spatial tumor continuity ({decision.axial_context.foreground_neighbors_count if decision.axial_context else 0} adjacent foreground slices). "
-            f"The agent successfully triggered candidate model `{decision.selected_model}` (T* = {decision.calibrated_temperature:.4f}), which recovered lesion segmentation."
+            f"The agent successfully triggered candidate model `{decision.selected_model}` (T* = {decision.calibrated_temperature:.4f}), which recovered lesion segmentation.{warning_note}"
         )
     else:  # FLAG_UNRELIABLE
+        reason_detail = (
+            f"Foreground predictive entropy ({decision.mean_uncertainty:.4f}) exceeded operating threshold (τ = {agent.config.high_uncertainty_threshold:.2f}), indicating significant boundary or classification ambiguity."
+            if not decision.has_empty_foreground and decision.mean_uncertainty is not None
+            else "A complete empty prediction was generated and could not be resolved by axial context fallback (no adjacent foreground tumor continuity or unavailable neighbors)."
+        )
         st.warning(
-            f"**Specialist Referral Rationale:** The prediction failed reliability criteria. "
-            f"{'Foreground predictive entropy exceeded operating threshold, indicating significant boundary or classification ambiguity.' if not decision.has_empty_foreground else 'A complete empty prediction was generated and could not be resolved by axial context fallback.'} "
-            f"The slice is flagged for neuroradiologist human review to prevent clinical errors."
+            f"**Specialist Referral Rationale:** The prediction failed reliability criteria. {reason_detail} "
+            f"The slice is flagged for neuroradiologist human review to prevent clinical errors.\n\n"
+            f"🚩 **Clinical Distinction Notice:** An unreliable flag represents statistical prediction uncertainty under the "
+            f"Stage C3 reliability policy, NOT a clinically confirmed diagnosis or absence/presence of pathology."
         )
 
 

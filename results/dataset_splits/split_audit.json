@@ -1,0 +1,71 @@
+{
+  "assertions": {
+    "ASSERT_01_CENSUS_PARITY": {
+      "details": "1251/1251 census cases matched exactly; all marked eligible.",
+      "status": "PASS"
+    },
+    "ASSERT_02_MUTUAL_EXCLUSION_COLLECTIVE_EXHAUSTION": {
+      "details": "Partitions are mutually exclusive and collectively exhaustive over 1251 cases.",
+      "status": "PASS"
+    },
+    "ASSERT_03_ZERO_SUBJECT_OVERLAP": {
+      "details": "0 subject overlap between Train (847), Val (143), and Test (143).",
+      "status": "PASS"
+    },
+    "ASSERT_04_HISTORICAL_QUARANTINE": {
+      "details": "All 220 historical cases (180 subjects) restricted to Train; 0 in Val or Test.",
+      "status": "PASS"
+    },
+    "ASSERT_05_EXACT_CARDINALITIES": {
+      "details": "Dev Train: 721 cases (667 subs), Final Train: 941 cases (847 subs), Val: 155 cases (143 subs), Test: 155 cases (143 subs).",
+      "status": "PASS"
+    },
+    "ASSERT_06_SUBMANIFEST_SYNCHRONIZATION": {
+      "details": "All sub-manifest files match exact subsets of final_split_manifest.",
+      "status": "PASS"
+    },
+    "ASSERT_07_LONGITUDINAL_SERIES_INTEGRITY": {
+      "details": "All scans of multi-scan subjects share identical partition and provenance.",
+      "status": "PASS"
+    },
+    "ASSERT_08_SOURCE_LOCATION_INTEGRITY": {
+      "details": "197 disk_raw (complete), 1054 archive (1031 unseen + 22 companion + 1 incomplete 00646-001 sourced from archive).",
+      "status": "PASS"
+    },
+    "ASSERT_09_ALPHANUMERIC_ORDERING": {
+      "details": "All manifests ordered in strict alphanumeric case_id order.",
+      "status": "PASS"
+    }
+  },
+  "audit_timestamp": "2026-10-27T07:08:30Z",
+  "audit_version": "1.0.0",
+  "manifest_sha256_checksums": {
+    "development_train_manifest.json": "42b7bf303319266bfa692e0eb41fddd425de2b845195f07b9b9105ed1875b015",
+    "final_split_manifest.json": "01a32c7f9541fee00f479bb8b9d88435eff023cc6d7fd3dcf8e4fa29f0788904",
+    "final_train_manifest.json": "f1171290d692fab54c6d2e353cd73ff5d53c0055ee3ff7a36663a15fe9be8409",
+    "test_manifest.json": "694faaa4ff100066d67aa5c87c545a709e4eed43a61625d3bea9f43c50d6dfb7",
+    "validation_manifest.json": "20accad8a9c2717f50db4a582c749bf50f1316ae03e9616cf589d7dbf44c852c"
+  },
+  "overall_verdict": "VERIFIED_READY_FOR_FREEZE",
+  "reproducibility_parameters": {
+    "census_source_sha256": "6e9da3a33e57e15a9f71bd97bb0bf82dfee7146ecb351be1acd955728b486345",
+    "random_seed": 42,
+    "split_algorithm": "deterministic_stratified_subject_slicing_v1"
+  },
+  "verified_counts": {
+    "development_train_cases": 721,
+    "development_train_subjects": 667,
+    "final_train_cases_total": 941,
+    "final_train_subjects_total": 847,
+    "historical_cases": 220,
+    "historical_subjects": 180,
+    "test_cases_total": 155,
+    "test_subjects_total": 143,
+    "total_eligible_cases": 1251,
+    "total_subjects": 1133,
+    "unseen_cases": 1031,
+    "unseen_subjects": 953,
+    "val_cases_total": 155,
+    "val_subjects_total": 143
+  }
+}

@@ -355,7 +355,7 @@ class TestInferenceAgentAxialContext(unittest.TestCase):
         self.assertEqual(ctx.foreground_neighbors_count, 0)
 
     def test_runner_handles_volume_physical_boundaries(self) -> None:
-        """Slices outside [0, case_total_slices - 1] are excluded from neighbor window."""
+        """At volume boundaries (e.g. z=0), slices outside [0, case_total_slices - 1] count as unavailable per Stage C3 v1.1.3."""
         registry = MagicMock(spec=ModelRegistry)
         registry.default_device = torch.device("cpu")
         empty_pred = _make_prediction("unetpp", dominant_class=0)
@@ -381,10 +381,12 @@ class TestInferenceAgentAxialContext(unittest.TestCase):
         ctx = decision.axial_context
         self.assertIsNotNone(ctx)
         assert ctx is not None
-        # In-bounds neighbors are only slice 1 and 2 (total 2 neighbors)
+        # Out-of-volume neighbor slots count as unavailable per Stage C3 v1.1.3 convention.
+        # Slices -2, -1 are out of range (2 unavailable), slice 2 is missing (1 unavailable),
+        # slice 1 is evaluated (1 evaluated). Total neighbor slots = 4.
         self.assertEqual(ctx.evaluated_neighbors_count, 1)  # slice 1 was in case_preds
-        self.assertEqual(ctx.unavailable_neighbors_count, 1)  # slice 2 was missing
-        self.assertEqual(ctx.evaluated_neighbors_count + ctx.unavailable_neighbors_count, 2)
+        self.assertEqual(ctx.unavailable_neighbors_count, 3)  # slices -2, -1 out-of-volume + slice 2 missing
+        self.assertEqual(ctx.evaluated_neighbors_count + ctx.unavailable_neighbors_count, 4)
 
     def test_runner_skips_candidate_query_when_context_suppresses_fallback(self) -> None:
         """Optimization: If axial context suppresses fallback, runner does not query candidate models."""
